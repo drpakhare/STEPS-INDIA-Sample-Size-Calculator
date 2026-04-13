@@ -89,8 +89,9 @@ const CLD_EVIDENCE = {
       { study: "SEHAT (CHW-facilitated)", effect: "−5.2 mmHg (95% CI −7.1 to −3.3)" },
       { study: "IHCI (bundled)", effect: "+33.5 pp BP control" },
     ],
-    protocolEffect: "10.5 pp absolute",
+    protocolEffect: "10.5 pp absolute ≈ 36% relative (baseline 29%)",
     plausibleRangePP: { low: 5, mid: 10.5, high: 18 },
+    plausibleRangeRel: { low: 0.17, mid: 0.36, high: 0.62 }, // rel = abs / baseline 0.29
     note: "Peer-specific HTN trials sparse (n=3). Primary estimate from broader lifestyle education category.",
   },
   dm: {
@@ -103,8 +104,9 @@ const CLD_EVIDENCE = {
       { study: "IMPACT-Diabetes (ASHA-led)", effect: "21.8% vs 10.3% achieving control" },
       { study: "Anjali 2023 (single-site)", effect: "HbA1c −1.3% (n=106)" },
     ],
-    protocolEffect: "8.4 pp absolute",
+    protocolEffect: "8.4 pp absolute ≈ 24% relative (baseline 35.5%)",
     plausibleRangePP: { low: 4, mid: 8.4, high: 15 },
+    plausibleRangeRel: { low: 0.11, mid: 0.24, high: 0.42 }, // rel = abs / baseline 0.355
     note: "K-DPP (Kerala, n=1,007): primary non-significant (12% RRR, p=0.17). Publication bias: 20-40% downward adjustment recommended.",
   },
 };
@@ -269,6 +271,7 @@ function generateExportHTML(params) {
     effectiveICCHTN, effectiveICCDM, htnResult, dmResult, htn_p_control, htn_effect,
     dm_p_control, dm_effect, htn_clusterSize, dm_clusterSize, alpha, power, attrition,
     cv, stratified, stratR2, poweringLevel, htnBinding, siteICCData,
+    htn_p_int, dm_p_int,
   } = params;
 
   const isSite = poweringLevel === "site";
@@ -328,8 +331,9 @@ function generateExportHTML(params) {
 <table>
   <tr><th>Parameter</th><th>BP Control (HTN)</th><th>Glycemic Control (DM)</th></tr>
   <tr><td>Baseline control rate</td><td>${(htn_p_control * 100).toFixed(1)}%</td><td>${(dm_p_control * 100).toFixed(1)}%</td></tr>
-  <tr><td>Absolute effect size</td><td>${(htn_effect * 100).toFixed(1)} pp</td><td>${(dm_effect * 100).toFixed(1)} pp</td></tr>
-  <tr><td>Intervention rate (expected)</td><td>${((htn_p_control + htn_effect) * 100).toFixed(1)}%</td><td>${((dm_p_control + dm_effect) * 100).toFixed(1)}%</td></tr>
+  <tr><td>Relative effect size</td><td>${(htn_effect * 100).toFixed(0)}% of baseline</td><td>${(dm_effect * 100).toFixed(0)}% of baseline</td></tr>
+  <tr><td>Absolute effect (derived)</td><td>${((htn_p_int - htn_p_control) * 100).toFixed(1)} pp</td><td>${((dm_p_int - dm_p_control) * 100).toFixed(1)} pp</td></tr>
+  <tr><td>Intervention rate (expected)</td><td>${(htn_p_int * 100).toFixed(1)}%</td><td>${(dm_p_int * 100).toFixed(1)}%</td></tr>
   <tr><td>Cluster size (m)</td><td>${htn_clusterSize}</td><td>${dm_clusterSize}</td></tr>
   <tr><td>ICC used</td><td>${effectiveICCHTN.toFixed(4)} <span class="v3">(V3: 0.10)</span></td><td>${effectiveICCDM.toFixed(4)} <span class="v3">(V3: 0.05)</span></td></tr>
   <tr><td>Alpha (two-sided)</td><td colspan="2">${alpha} (Bonferroni for co-primary outcomes)</td></tr>
@@ -372,7 +376,7 @@ function generateExportHTML(params) {
 </table>
 
 <div class="footer">
-  STEPS-INDIA CRCT Sample Size Calculator v2.1 | ICMR-NHRP Funded<br>
+  STEPS-INDIA CRCT Sample Size Calculator v2.2 | ICMR-NHRP Funded<br>
   Formulas: Donner & Klar (1981); Hayes & Bennett (1999); Eldridge et al. (2006); Rutterford, Copas & Eldridge (2015)<br>
   ICCs from baseline survey using GEE with exchangeable correlation (Zou & Donner 2004)
 </div>
@@ -401,14 +405,24 @@ function App() {
   const [siteWeights, setSiteWeights] = useState(SURVEY_DATA.sites.map(s => s.clusters));
 
   // Trial parameters — HTN (updated from survey: baseline 19.8%)
+  // htn_effect is now RELATIVE (fraction of baseline). 0.53 = 53% relative improvement.
+  // Protocol V3 anchor: 10.5pp absolute / 19.8% baseline ≈ 0.53 relative
   const [htn_p_control, setHtnPControl] = useState(0.198);
-  const [htn_effect, setHtnEffect] = useState(0.105);
+  const [htn_effect, setHtnEffect] = useState(0.53);
   const [htn_clusterSize, setHtnClusterSize] = useState(25);
 
   // Trial parameters — DM (survey: 35.5% among those with verified HbA1c)
+  // dm_effect relative. Protocol V3: 8.4pp / 35.5% ≈ 0.24 relative
   const [dm_p_control, setDmPControl] = useState(0.355);
-  const [dm_effect, setDmEffect] = useState(0.084);
+  const [dm_effect, setDmEffect] = useState(0.24);
   const [dm_clusterSize, setDmClusterSize] = useState(15);
+
+  // Helper: convert relative effect to absolute p_intervention, clamped to <1
+  const pInt = (p, rel) => Math.min(0.999, p * (1 + rel));
+  const htn_p_int = pInt(htn_p_control, htn_effect);
+  const dm_p_int  = pInt(dm_p_control, dm_effect);
+  const htn_abs_pp = (htn_p_int - htn_p_control) * 100;
+  const dm_abs_pp  = (dm_p_int  - dm_p_control ) * 100;
 
   // Shared parameters
   const [alpha, setAlpha] = useState(0.025);
@@ -433,12 +447,12 @@ function App() {
 
   // Compute results
   const htnResult = useMemo(() =>
-    sampleSizePerArm(htn_p_control, htn_p_control + htn_effect, alpha, power, htn_clusterSize, effectiveICCHTN, cv, attrition, stratified ? stratR2 : 0),
+    sampleSizePerArm(htn_p_control, pInt(htn_p_control, htn_effect), alpha, power, htn_clusterSize, effectiveICCHTN, cv, attrition, stratified ? stratR2 : 0),
     [htn_p_control, htn_effect, alpha, power, htn_clusterSize, effectiveICCHTN, cv, attrition, stratified, stratR2]
   );
 
   const dmResult = useMemo(() =>
-    sampleSizePerArm(dm_p_control, dm_p_control + dm_effect, alpha, power, dm_clusterSize, effectiveICCDM, cv, attrition, stratified ? stratR2 : 0),
+    sampleSizePerArm(dm_p_control, pInt(dm_p_control, dm_effect), alpha, power, dm_clusterSize, effectiveICCDM, cv, attrition, stratified ? stratR2 : 0),
     [dm_p_control, dm_effect, alpha, power, dm_clusterSize, effectiveICCDM, cv, attrition, stratified, stratR2]
   );
 
@@ -451,8 +465,8 @@ function App() {
     const data = [];
     const mult = poweringLevel === "site" ? NUM_SITES : 1;
     for (let icc = 0.01; icc <= 0.15; icc += 0.005) {
-      const h = sampleSizePerArm(htn_p_control, htn_p_control + htn_effect, alpha, power, htn_clusterSize, icc, cv, attrition, stratified ? stratR2 : 0);
-      const d = sampleSizePerArm(dm_p_control, dm_p_control + dm_effect, alpha, power, dm_clusterSize, icc, cv, attrition, stratified ? stratR2 : 0);
+      const h = sampleSizePerArm(htn_p_control, pInt(htn_p_control, htn_effect), alpha, power, htn_clusterSize, icc, cv, attrition, stratified ? stratR2 : 0);
+      const d = sampleSizePerArm(dm_p_control, pInt(dm_p_control, dm_effect), alpha, power, dm_clusterSize, icc, cv, attrition, stratified ? stratR2 : 0);
       data.push({ icc: icc.toFixed(3), HTN_Clusters: h.clusters * 2 * mult, DM_Clusters: d.clusters * 2 * mult });
     }
     return data;
@@ -463,8 +477,8 @@ function App() {
     const data = [];
     const mult = poweringLevel === "site" ? NUM_SITES : 1;
     for (let m = 5; m <= 50; m += 5) {
-      const h = sampleSizePerArm(htn_p_control, htn_p_control + htn_effect, alpha, power, m, effectiveICCHTN, cv, attrition, stratified ? stratR2 : 0);
-      const d = sampleSizePerArm(dm_p_control, dm_p_control + dm_effect, alpha, power, m, effectiveICCDM, cv, attrition, stratified ? stratR2 : 0);
+      const h = sampleSizePerArm(htn_p_control, pInt(htn_p_control, htn_effect), alpha, power, m, effectiveICCHTN, cv, attrition, stratified ? stratR2 : 0);
+      const d = sampleSizePerArm(dm_p_control, pInt(dm_p_control, dm_effect), alpha, power, m, effectiveICCDM, cv, attrition, stratified ? stratR2 : 0);
       data.push({ cluster_size: m, HTN_Clusters: h.clusters * 2 * mult, HTN_Participants: h.total_per_arm * 2 * mult, DM_Clusters: d.clusters * 2 * mult, DM_Participants: d.total_per_arm * 2 * mult });
     }
     return data;
@@ -497,6 +511,41 @@ function App() {
     return data;
   }, [htn_p_control, dm_p_control, alpha, power, htn_clusterSize, dm_clusterSize, effectiveICCHTN, effectiveICCDM, cv, attrition, stratified, stratR2, poweringLevel]);
 
+  // ── Per-site MDE: given each site's own baseline & ICC, what Δ can we detect at the planned budget? ──
+  const perSiteMDE = useMemo(() => {
+    const isSite = poweringLevel === "site";
+    // clusters per arm per site from chosen powering level
+    const htnCPAS = isSite ? htnResult.clusters : Math.ceil(htnResult.clusters / NUM_SITES);
+    const dmCPAS  = isSite ? dmResult.clusters  : Math.ceil(dmResult.clusters  / NUM_SITES);
+    // Binary search MDE for a given p_control, icc, m, budget (clusters per arm per site)
+    const findMDE = (p_ctrl, icc, m, budget) => {
+      let lo = 0.001, hi = Math.min(0.50, 1 - p_ctrl - 0.001), best = null;
+      for (let iter = 0; iter < 60; iter++) {
+        const eff = (lo + hi) / 2;
+        const r = sampleSizePerArm(p_ctrl, p_ctrl + eff, alpha, power, m, icc, cv, attrition, stratified ? stratR2 : 0);
+        if (r.clusters > budget) lo = eff; else { hi = eff; best = eff; }
+      }
+      return best;
+    };
+    return SURVEY_DATA.sites.map((s, i) => {
+      const pBP   = s.bpCtrl !== null ? s.bpCtrl / 100 : null;
+      const pGlyc = (s.glycCtrl !== null && !s.lowHba1c) ? s.glycCtrl / 100 : null;
+      const iccBP   = parseFloat(iccHTN[i]);
+      const iccGlyc = parseFloat(iccDM[i]);
+      const mdeBP   = (pBP   !== null && !isNaN(iccBP))   ? findMDE(pBP,   iccBP,   htn_clusterSize, htnCPAS) : null;
+      const mdeGlyc = (pGlyc !== null && !isNaN(iccGlyc)) ? findMDE(pGlyc, iccGlyc, dm_clusterSize,  dmCPAS)  : null;
+      return {
+        name: s.name, insufficient: s.insufficient, lowHba1c: s.lowHba1c,
+        pBP, pGlyc, iccBP, iccGlyc,
+        mdeBP:   mdeBP   !== null ? mdeBP * 100 : null,
+        mdeGlyc: mdeGlyc !== null ? mdeGlyc * 100 : null,
+        mdeBPrel:   (mdeBP   !== null && pBP   !== null) ? (mdeBP   / pBP)   : null, // relative fraction
+        mdeGlycRel: (mdeGlyc !== null && pGlyc !== null) ? (mdeGlyc / pGlyc) : null,
+        htnCPAS, dmCPAS,
+      };
+    });
+  }, [htnResult, dmResult, iccHTN, iccDM, htn_clusterSize, dm_clusterSize, alpha, power, cv, attrition, stratified, stratR2, poweringLevel]);
+
   const updateICC = useCallback((arr, setter, idx, val) => {
     const next = [...arr];
     next[idx] = val;
@@ -521,6 +570,7 @@ function App() {
       htn_p_control, htn_effect, dm_p_control, dm_effect,
       htn_clusterSize, dm_clusterSize, alpha, power, attrition,
       cv, stratified, stratR2, poweringLevel, htnBinding, siteICCData,
+      htn_p_int, dm_p_int,
     });
 
     const blob = new Blob([html], { type: "text/html" });
@@ -543,7 +593,7 @@ function App() {
             <h1 style={styles.headerTitle}>STEPS-INDIA CRCT Sample Size Calculator</h1>
             <p style={styles.headerSub}>
               Interactive tool for finalizing cluster count and sample size using baseline survey ICCs
-              &nbsp;|&nbsp; Co-primary outcomes (BP &amp; Glycemic Control) &nbsp;|&nbsp; v2.1
+              &nbsp;|&nbsp; Co-primary outcomes (BP &amp; Glycemic Control) &nbsp;|&nbsp; v2.2
             </p>
           </div>
           <button style={styles.exportBtn} onClick={handleExport}>
@@ -752,52 +802,54 @@ function App() {
           <Card title="Hypertension (BP Control)" accent={ACCENT}>
             <div style={styles.paramRow}>
               <ParamInput label="Baseline control rate" value={htn_p_control} onChange={setHtnPControl} step="0.01" min={0.01} max={0.99} />
-              <ParamInput label="Absolute effect size" value={htn_effect} onChange={setHtnEffect} step="0.005" min={0.01} max={0.50} />
-              <ParamInput label="Intervention rate" value={(htn_p_control + htn_effect).toFixed(3)} onChange={() => {}} suffix="(derived)" />
+              <ParamInput label="Relative effect (fraction)" value={htn_effect} onChange={setHtnEffect} step="0.01" min={0.01} max={3.00} />
+              <ParamInput label="Intervention rate" value={htn_p_int.toFixed(3)} onChange={() => {}} suffix="(derived)" />
             </div>
             <div style={styles.paramRow}>
               <ParamInput label="Cluster size (m)" value={htn_clusterSize} onChange={setHtnClusterSize} step="1" min={5} max={100} />
               <div style={styles.paramGroup}>
-                <label style={styles.label}>Relative effect</label>
+                <label style={styles.label}>Absolute effect (derived)</label>
                 <span style={{ fontSize: "13px", fontWeight: "700", color: ACCENT }}>
-                  {((htn_effect / htn_p_control) * 100).toFixed(1)}%
+                  {htn_abs_pp.toFixed(1)}pp ({(htn_effect * 100).toFixed(0)}% rel)
                 </span>
               </div>
             </div>
             <div style={{ fontSize: "10.5px", color: "#777", display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
-              <span>CLD range:</span>
-              {[CLD_EVIDENCE.htn.plausibleRangePP.low, CLD_EVIDENCE.htn.plausibleRangePP.mid, CLD_EVIDENCE.htn.plausibleRangePP.high].map(v => (
-                <button key={v} onClick={() => setHtnEffect(v / 100)}
-                  style={{ ...styles.toggleBtn, padding: "2px 8px", fontSize: "10px", background: Math.abs(htn_effect * 100 - v) < 0.1 ? ACCENT : "white", color: Math.abs(htn_effect * 100 - v) < 0.1 ? "white" : ACCENT, border: `1px solid ${ACCENT}` }}>
-                  {v}pp
+              <span>CLD range (relative):</span>
+              {[CLD_EVIDENCE.htn.plausibleRangeRel.low, CLD_EVIDENCE.htn.plausibleRangeRel.mid, CLD_EVIDENCE.htn.plausibleRangeRel.high].map(v => (
+                <button key={v} onClick={() => setHtnEffect(v)}
+                  style={{ ...styles.toggleBtn, padding: "2px 8px", fontSize: "10px", background: Math.abs(htn_effect - v) < 0.005 ? ACCENT : "white", color: Math.abs(htn_effect - v) < 0.005 ? "white" : ACCENT, border: `1px solid ${ACCENT}` }}>
+                  {(v * 100).toFixed(0)}%
                 </button>
               ))}
+              <span style={{ color: "#999" }}>(of baseline)</span>
             </div>
           </Card>
 
           <Card title="Diabetes (Glycemic Control)" accent={GREEN}>
             <div style={styles.paramRow}>
               <ParamInput label="Baseline control rate" value={dm_p_control} onChange={setDmPControl} step="0.01" min={0.01} max={0.99} />
-              <ParamInput label="Absolute effect size" value={dm_effect} onChange={setDmEffect} step="0.005" min={0.01} max={0.50} />
-              <ParamInput label="Intervention rate" value={(dm_p_control + dm_effect).toFixed(3)} onChange={() => {}} suffix="(derived)" />
+              <ParamInput label="Relative effect (fraction)" value={dm_effect} onChange={setDmEffect} step="0.01" min={0.01} max={3.00} />
+              <ParamInput label="Intervention rate" value={dm_p_int.toFixed(3)} onChange={() => {}} suffix="(derived)" />
             </div>
             <div style={styles.paramRow}>
               <ParamInput label="Cluster size (m)" value={dm_clusterSize} onChange={setDmClusterSize} step="1" min={5} max={100} />
               <div style={styles.paramGroup}>
-                <label style={styles.label}>Relative effect</label>
+                <label style={styles.label}>Absolute effect (derived)</label>
                 <span style={{ fontSize: "13px", fontWeight: "700", color: GREEN }}>
-                  {((dm_effect / dm_p_control) * 100).toFixed(1)}%
+                  {dm_abs_pp.toFixed(1)}pp ({(dm_effect * 100).toFixed(0)}% rel)
                 </span>
               </div>
             </div>
             <div style={{ fontSize: "10.5px", color: "#777", display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
-              <span>CLD range:</span>
-              {[CLD_EVIDENCE.dm.plausibleRangePP.low, CLD_EVIDENCE.dm.plausibleRangePP.mid, CLD_EVIDENCE.dm.plausibleRangePP.high].map(v => (
-                <button key={v} onClick={() => setDmEffect(v / 100)}
-                  style={{ ...styles.toggleBtn, padding: "2px 8px", fontSize: "10px", background: Math.abs(dm_effect * 100 - v) < 0.1 ? GREEN : "white", color: Math.abs(dm_effect * 100 - v) < 0.1 ? "white" : GREEN, border: `1px solid ${GREEN}` }}>
-                  {v}pp
+              <span>CLD range (relative):</span>
+              {[CLD_EVIDENCE.dm.plausibleRangeRel.low, CLD_EVIDENCE.dm.plausibleRangeRel.mid, CLD_EVIDENCE.dm.plausibleRangeRel.high].map(v => (
+                <button key={v} onClick={() => setDmEffect(v)}
+                  style={{ ...styles.toggleBtn, padding: "2px 8px", fontSize: "10px", background: Math.abs(dm_effect - v) < 0.005 ? GREEN : "white", color: Math.abs(dm_effect - v) < 0.005 ? "white" : GREEN, border: `1px solid ${GREEN}` }}>
+                  {(v * 100).toFixed(0)}%
                 </button>
               ))}
+              <span style={{ color: "#999" }}>(of baseline)</span>
             </div>
           </Card>
         </div>
@@ -810,9 +862,12 @@ function App() {
                 <div style={{ fontSize: "11.5px" }}>
                   <strong>Primary:</strong> {CLD_EVIDENCE.htn.primaryEstimate} ({CLD_EVIDENCE.htn.primarySource})<br />
                   <strong>Range:</strong> {CLD_EVIDENCE.htn.rangeMMHG}<br />
-                  <strong>Plausible range (absolute pp):</strong>{" "}
-                  <span style={{ fontWeight: "700" }}>{CLD_EVIDENCE.htn.plausibleRangePP.low}–{CLD_EVIDENCE.htn.plausibleRangePP.high} pp</span>
-                  <span style={{ color: "#999" }}> (Protocol V3: {CLD_EVIDENCE.htn.protocolEffect})</span><br />
+                  <strong>Plausible range:</strong>{" "}
+                  <span style={{ fontWeight: "700" }}>
+                    {(CLD_EVIDENCE.htn.plausibleRangeRel.low * 100).toFixed(0)}–{(CLD_EVIDENCE.htn.plausibleRangeRel.high * 100).toFixed(0)}% relative
+                  </span>
+                  <span style={{ color: "#999" }}> ({CLD_EVIDENCE.htn.plausibleRangePP.low}–{CLD_EVIDENCE.htn.plausibleRangePP.high} pp absolute at baseline 29%)</span><br />
+                  <span style={{ color: "#999", fontSize: "10.5px" }}>Protocol V3: {CLD_EVIDENCE.htn.protocolEffect}</span><br />
                   <div style={{ marginTop: "4px", fontSize: "10.5px", color: "#777" }}>
                     <strong>India:</strong> {CLD_EVIDENCE.htn.indiaEvidence.map((e, i) => (
                       <span key={i}>{e.study}: {e.effect}{i < CLD_EVIDENCE.htn.indiaEvidence.length - 1 ? " | " : ""}</span>
@@ -825,9 +880,12 @@ function App() {
                 <div style={{ fontSize: "11.5px" }}>
                   <strong>Primary:</strong> {CLD_EVIDENCE.dm.primaryEstimate} ({CLD_EVIDENCE.dm.primarySource})<br />
                   <strong>Range:</strong> {CLD_EVIDENCE.dm.rangeHbA1c}<br />
-                  <strong>Plausible range (absolute pp):</strong>{" "}
-                  <span style={{ fontWeight: "700" }}>{CLD_EVIDENCE.dm.plausibleRangePP.low}–{CLD_EVIDENCE.dm.plausibleRangePP.high} pp</span>
-                  <span style={{ color: "#999" }}> (Protocol V3: {CLD_EVIDENCE.dm.protocolEffect})</span><br />
+                  <strong>Plausible range:</strong>{" "}
+                  <span style={{ fontWeight: "700" }}>
+                    {(CLD_EVIDENCE.dm.plausibleRangeRel.low * 100).toFixed(0)}–{(CLD_EVIDENCE.dm.plausibleRangeRel.high * 100).toFixed(0)}% relative
+                  </span>
+                  <span style={{ color: "#999" }}> ({CLD_EVIDENCE.dm.plausibleRangePP.low}–{CLD_EVIDENCE.dm.plausibleRangePP.high} pp absolute at baseline 35.5%)</span><br />
+                  <span style={{ color: "#999", fontSize: "10.5px" }}>Protocol V3: {CLD_EVIDENCE.dm.protocolEffect}</span><br />
                   <div style={{ marginTop: "4px", fontSize: "10.5px", color: "#777" }}>
                     <strong>India:</strong> {CLD_EVIDENCE.dm.indiaEvidence.map((e, i) => (
                       <span key={i}>{e.study}: {e.effect}{i < CLD_EVIDENCE.dm.indiaEvidence.length - 1 ? " | " : ""}</span>
@@ -999,6 +1057,73 @@ function App() {
           </div>
         </Card>
 
+        <Card title="Per-Site MDE: What each site can actually detect at the current cluster budget" accent="#7B2D8E">
+          <div style={{ fontSize: "11.5px", color: "#555", marginBottom: "10px" }}>
+            Uses each site's <strong>own baseline control rate</strong> and ICC to compute the minimum detectable effect
+            (shown as <strong>relative %</strong> of baseline, with absolute pp in parentheses)
+            given {poweringLevel === "site" ? "that site's" : "that site's share of the study's"} cluster budget.
+            Flags sites where the planned relative effect (HTN {(htn_effect * 100).toFixed(0)}%, DM {(dm_effect * 100).toFixed(0)}%) exceeds that site's MDE — those sites would be under-powered if analysed alone.
+          </div>
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th style={styles.th}>Site</th>
+                <th style={{ ...styles.th, textAlign: "center" }}>BP Baseline</th>
+                <th style={{ ...styles.th, textAlign: "center" }}>ICC (BP)</th>
+                <th style={{ ...styles.th, textAlign: "center" }}>MDE (BP) rel (abs)</th>
+                <th style={{ ...styles.th, textAlign: "center" }}>vs Planned ({(htn_effect * 100).toFixed(0)}%)</th>
+                <th style={{ ...styles.th, textAlign: "center" }}>Glyc Baseline</th>
+                <th style={{ ...styles.th, textAlign: "center" }}>ICC (Glyc)</th>
+                <th style={{ ...styles.th, textAlign: "center" }}>MDE (Glyc) rel (abs)</th>
+                <th style={{ ...styles.th, textAlign: "center" }}>vs Planned ({(dm_effect * 100).toFixed(0)}%)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {perSiteMDE.map((row, i) => {
+                const bpOK   = row.mdeBPrel   !== null && row.mdeBPrel   <= htn_effect;
+                const glycOK = row.mdeGlycRel !== null && row.mdeGlycRel <= dm_effect;
+                return (
+                  <tr key={i} style={{ background: i % 2 === 0 ? "white" : "#F8FAFC" }}>
+                    <td style={{ ...styles.td, fontWeight: "500", fontSize: "11.5px" }}>{row.name}</td>
+                    <td style={{ ...styles.td, textAlign: "center" }}>{row.pBP !== null ? (row.pBP * 100).toFixed(1) + "%" : "—"}</td>
+                    <td style={{ ...styles.td, textAlign: "center", fontSize: "11px" }}>{!isNaN(row.iccBP) ? row.iccBP.toFixed(4) : "—"}</td>
+                    <td style={{ ...styles.td, textAlign: "center", fontWeight: "700", color: ACCENT }}>
+                      {row.mdeBPrel !== null ? `${(row.mdeBPrel * 100).toFixed(0)}% (${row.mdeBP.toFixed(1)}pp)` : "—"}
+                    </td>
+                    <td style={{ ...styles.td, textAlign: "center" }}>
+                      {row.mdeBPrel !== null ? (
+                        <span style={{ ...styles.badge, background: bpOK ? GREEN : ORANGE, color: "white", marginLeft: 0 }}>
+                          {bpOK ? "powered" : "under-powered"}
+                        </span>
+                      ) : "—"}
+                    </td>
+                    <td style={{ ...styles.td, textAlign: "center" }}>
+                      {row.pGlyc !== null ? (row.pGlyc * 100).toFixed(1) + "%" : <span style={{ color: RED, fontSize: "10.5px" }}>HbA1c gap</span>}
+                    </td>
+                    <td style={{ ...styles.td, textAlign: "center", fontSize: "11px" }}>{!isNaN(row.iccGlyc) ? row.iccGlyc.toFixed(4) : "—"}</td>
+                    <td style={{ ...styles.td, textAlign: "center", fontWeight: "700", color: GREEN }}>
+                      {row.mdeGlycRel !== null ? `${(row.mdeGlycRel * 100).toFixed(0)}% (${row.mdeGlyc.toFixed(1)}pp)` : "—"}
+                    </td>
+                    <td style={{ ...styles.td, textAlign: "center" }}>
+                      {row.mdeGlycRel !== null ? (
+                        <span style={{ ...styles.badge, background: glycOK ? GREEN : ORANGE, color: "white", marginLeft: 0 }}>
+                          {glycOK ? "powered" : "under-powered"}
+                        </span>
+                      ) : "—"}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div style={styles.note}>
+            <strong>Interpretation:</strong> "powered" means the site's site-specific analysis (alone) could detect the planned effect at its own baseline.
+            "under-powered" means the site can only detect larger effects than planned — pooled analysis is appropriate but site-alone effectiveness claims would be weak.
+            Baseline control rates near 50% (variance-maximum) make detection hardest; extreme baselines (Delhi BP 8.5%) are easier.
+            Sites with HbA1c verification gaps show "—" for glycemic MDE until data is complete.
+          </div>
+        </Card>
+
         {/* ── Formula Reference ── */}
         <div style={styles.sectionTitle}>5. Formula Reference</div>
         <Card title="Methodology &amp; Formulas">
@@ -1038,7 +1163,7 @@ function App() {
         </Card>
 
         <div style={{ textAlign: "center", padding: "20px 0", fontSize: "11px", color: "#999" }}>
-          STEPS-INDIA CRCT Sample Size Calculator v2.1 &nbsp;|&nbsp; Baseline survey data: {SURVEY_DATA.date}
+          STEPS-INDIA CRCT Sample Size Calculator v2.2 &nbsp;|&nbsp; Baseline survey data: {SURVEY_DATA.date}
           &nbsp;|&nbsp; Investigators' Meeting, Jammu, April 2026 &nbsp;|&nbsp; ICMR-NHRP Funded
         </div>
       </div>
