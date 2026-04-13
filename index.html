@@ -389,11 +389,11 @@ function App() {
     s.insufficient ? pooledBP : (s.iccBP === 0.0 ? pooledBP : s.iccBP)
   );
   const initialICCDM = SURVEY_DATA.sites.map(s =>
-    s.insufficient ? pooledGlyc : (s.iccGlyc === 0.0 ? pooledGlyc : (s.iccGlyc === null ? pooledGlyc : s.iccGlyc))
+    (s.insufficient || s.lowHba1c || s.iccGlyc === 0.0 || s.iccGlyc === null) ? pooledGlyc : s.iccGlyc
   );
   // Track which values are pooled substitutions
   const iccBPIsPooled = SURVEY_DATA.sites.map(s => s.insufficient || s.iccBP === 0.0 || s.iccBP === null);
-  const iccGlycIsPooled = SURVEY_DATA.sites.map(s => s.insufficient || s.iccGlyc === 0.0 || s.iccGlyc === null);
+  const iccGlycIsPooled = SURVEY_DATA.sites.map(s => s.insufficient || s.lowHba1c || s.iccGlyc === 0.0 || s.iccGlyc === null);
 
   // ICC inputs
   const [iccHTN, setIccHTN] = useState(initialICCHTN.map(v => v.toFixed(4)));
