@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="STEPS-INDIA CRCT Sample Size Calculator">
+    <meta name="author" content="STEPS-INDIA Research Team">
+    <title>STEPS-INDIA CRCT Sample Size Calculator</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        #root {
+            min-height: 100vh;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- CDN Dependencies -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Application Code -->
+    <script type="text/babel">
+// Imports handled via CDN
+const { useState, useMemo, useCallback } = React;
+const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, BarChart, Bar, Cell } = Recharts;
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+const SITES = [
+  "MGIMS Sevagram",
+  "AIIMS Bhopal",
+  "AIIMS Madurai",
+  "AIIMS Jammu",
+  "AIIMS New Delhi & HRIDAY",
+  "KIMS Odisha & INCLEN",
+];
+const NUM_SITES = SITES.length;
+
+const Z = { 0.05: 1.6449, 0.025: 1.96, 0.01: 2.3263, 0.005: 2.5758 };
+const Z_BETA = { 0.80: 0.8416, 0.85: 1.0364, 0.90: 1.2816, 0.95: 1.6449 };
+
+const PROTOCOL_V3 = {
+  htn: { icc: 0.10, effectAbs: 0.105, p_control: 0.22, clusterSize: 25, alpha: 0.025, power: 0.90, clusters_per_arm_per_site: 30, total_patients: 9000 },
+  dm: { icc: 0.05, effectAbs: 0.084, p_control: 0.30, clusterSize: 15, alpha: 0.025, power: 0.90, clusters_per_arm_per_site: 30, total_patients: 5400 },
+};
+
+// ─── Survey ICC Data (GEE method, April 2026 baseline survey) ────────────────
+// Source: 01_ICC_Primary_Outcomes.qmd — GEE with exchangeable correlation
+const SURVEY_DATA = {
+  date: "April 13, 2026",
+  totalN: 4695,
+  totalClusters: 237,
+  sites: [
+    { name: "MGIMS Sevagram",           n: 1202, clusters: 60, htnN: 420, bpCtrl: 28.8, dmN: 180, glycCtrl: 43.3, iccBP: 0.0000, iccGlyc: 0.0000 },
+    { name: "AIIMS Bhopal",             n: 846,  clusters: 41, htnN: 352, bpCtrl: 23.0, dmN: 177, glycCtrl: 34.5, iccBP: 0.0360, iccGlyc: 0.1540 },
+    { name: "AIIMS Madurai",            n: 840,  clusters: 42, htnN: 393, bpCtrl: 21.1, dmN: 303, glycCtrl: 38.0, iccBP: 0.0127, iccGlyc: 0.0000 },
+    { name: "AIIMS Jammu",              n: 816,  clusters: 42, htnN: 426, bpCtrl: 12.7, dmN: 207, glycCtrl: 28.0, iccBP: 0.0258, iccGlyc: 0.0222 },
+    { name: "AIIMS New Delhi & HRIDAY", n: 123,  clusters: 7,  htnN: 47,  bpCtrl: 8.5,  dmN: 13,  glycCtrl: 0.0,  iccBP: null,   iccGlyc: null,  insufficient: true },
+    { name: "KIMS Odisha & INCLEN",     n: 868,  clusters: 45, htnN: 411, bpCtrl: 15.1, dmN: 126, glycCtrl: 7.9,  iccBP: 0.0478, iccGlyc: 0.2503 },
+  ],
+  overall: { bpCtrl: 19.8, glycCtrl: 32.0, iccBP_anova: 0.0508, iccGlyc_anova: 0.0842, iccBP_gee: 0.0386, iccGlyc_gee: 0.0632 },
+};
+
+// ─── Utility functions ───────────────────────────────────────────────────────
+function zAlpha(alpha) { return Z[alpha] || 1.96; }
+function zBeta(power) { return Z_BETA[power] || 1.2816; }
+
+function designEffect(m, icc, cv = 0) {
+  if (cv > 0) return 1 + ((cv * cv + 1) * m - 1) * icc;
+  return 1 + (m - 1) * icc;
+}
+
+function sampleSizePerArm(p_control, p_intervention, alpha, power, m, icc, cv, attrition, stratR2 = 0) {
+  const za = zAlpha(alpha);
+  const zb = zBeta(power);
+  const p1 = p_control;
+  const p2 = p_intervention;
+  const n_ind = Math.pow(za + zb, 2) * (p1 * (1 - p1) + p2 * (1 - p2)) / Math.pow(p2 - p1, 2);
+  const icc_eff = icc * (1 - stratR2);
+  const de = designEffect(m, icc_eff, cv);
+  const n_cluster = Math.ceil(n_ind * de);
+  const n_with_attrition = Math.ceil(n_cluster / (1 - attrition));
+  const clusters = Math.ceil(n_with_attrition / m);
+  return { n_ind: Math.ceil(n_ind), de, icc_eff, n_cluster, n_with_attrition, clusters, total_per_arm: clusters * m };
+}
+
+function computePooledICC(siteICCs, siteWeights) {
+  let num = 0, den = 0;
+  siteICCs.forEach((v, i) => {
+    if (v !== null && v !== "" && !isNaN(v)) {
+      const w = siteWeights[i] || 1;
+      num += parseFloat(v) * w;
+      den += w;
+    }
+  });
+  return den > 0 ? num / den : null;
+}
+
+// ─── Styles ──────────────────────────────────────────────────────────────────
+const NAVY = "#002060";
+const ACCENT = "#4472C4";
+const GREEN = "#217346";
+const RED = "#C00000";
+const ORANGE = "#ED7D31";
+const PURPLE = "#7B2D8E";
+const LIGHT_BG = "#F8F9FA";
+const CARD_BG = "#FFFFFF";
+
+const styles = {
+  app: { fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif", background: LIGHT_BG, minHeight: "100vh", padding: "0" },
+  header: { background: `linear-gradient(135deg, ${NAVY} 0%, ${ACCENT} 100%)`, color: "white", padding: "24px 32px", marginBottom: "24px" },
+  headerTitle: { fontSize: "22px", fontWeight: "700", margin: "0 0 4px 0" },
+  headerSub: { fontSize: "13px", opacity: 0.85, margin: 0 },
+  container: { maxWidth: "1200px", margin: "0 auto", padding: "0 24px 40px" },
+  grid2: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px", marginBottom: "20px" },
+  card: { background: CARD_BG, borderRadius: "8px", border: "1px solid #E0E0E0", overflow: "hidden", marginBottom: "20px" },
+  cardHead: { background: NAVY, color: "white", padding: "10px 16px", fontSize: "14px", fontWeight: "600" },
+  cardBody: { padding: "16px" },
+  table: { width: "100%", borderCollapse: "collapse", fontSize: "12.5px" },
+  th: { background: "#E8EDF3", padding: "7px 10px", textAlign: "left", fontWeight: "600", borderBottom: `2px solid ${ACCENT}`, fontSize: "11.5px", color: NAVY },
+  td: { padding: "6px 10px", borderBottom: "1px solid #EEE" },
+  input: { width: "72px", padding: "4px 6px", border: "1px solid #CCC", borderRadius: "4px", fontSize: "12px", textAlign: "center" },
+  inputWide: { width: "100px", padding: "5px 8px", border: "1px solid #CCC", borderRadius: "4px", fontSize: "12.5px" },
+  select: { padding: "5px 8px", border: "1px solid #CCC", borderRadius: "4px", fontSize: "12.5px", background: "white" },
+  label: { fontSize: "12px", fontWeight: "600", color: "#444", display: "block", marginBottom: "3px" },
+  paramRow: { display: "flex", alignItems: "center", gap: "12px", marginBottom: "10px", flexWrap: "wrap" },
+  paramGroup: { display: "flex", flexDirection: "column", minWidth: "100px" },
+  resultBox: { padding: "14px 16px", borderRadius: "6px", marginBottom: "10px" },
+  badge: { display: "inline-block", padding: "2px 8px", borderRadius: "10px", fontSize: "10.5px", fontWeight: "700", marginLeft: "8px" },
+  badgePooled: { display: "inline-block", padding: "1px 6px", borderRadius: "8px", fontSize: "9.5px", fontWeight: "700", background: "#FFF3CD", color: "#856404", marginLeft: "4px" },
+  badgeInsuff: { display: "inline-block", padding: "1px 6px", borderRadius: "8px", fontSize: "9.5px", fontWeight: "700", background: "#F8D7DA", color: "#721C24", marginLeft: "4px" },
+  badgeSurvey: { display: "inline-block", padding: "1px 6px", borderRadius: "8px", fontSize: "9.5px", fontWeight: "700", background: "#D4EDDA", color: "#155724", marginLeft: "4px" },
+  note: { fontSize: "11px", color: "#666", marginTop: "8px", lineHeight: "1.5", padding: "8px 10px", background: "#FFF8E7", borderLeft: `3px solid ${ORANGE}`, borderRadius: "0 4px 4px 0" },
+  toggleBtn: { padding: "6px 14px", borderRadius: "4px", border: "1px solid #CCC", cursor: "pointer", fontSize: "12px", fontWeight: "500" },
+  toggleActive: { background: ACCENT, color: "white", border: `1px solid ${ACCENT}` },
+  divider: { borderTop: "1px solid #E0E0E0", margin: "12px 0" },
+  compRow: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px", fontSize: "12px" },
+  compLabel: { fontWeight: "600", color: "#555" },
+  compVal: { fontWeight: "700", fontSize: "14px" },
+  bindingTag: { background: RED, color: "white", padding: "1px 6px", borderRadius: "8px", fontSize: "10px", fontWeight: "700" },
+  sectionTitle: { fontSize: "15px", fontWeight: "700", color: NAVY, margin: "24px 0 12px", borderBottom: `2px solid ${ACCENT}`, paddingBottom: "6px" },
+  exportBtn: { padding: "10px 24px", borderRadius: "6px", border: "none", cursor: "pointer", fontSize: "13px", fontWeight: "600", background: NAVY, color: "white", display: "flex", alignItems: "center", gap: "8px" },
+  surveyBanner: { background: "linear-gradient(135deg, #E8F5E9 0%, #F1F8E9 100%)", border: "1px solid #C8E6C9", borderRadius: "8px", padding: "12px 16px", marginBottom: "20px", display: "flex", alignItems: "center", gap: "12px" },
+};
+
+// ─── Subcomponents ───────────────────────────────────────────────────────────
+function Card({ title, children, accent, id }) {
+  return (
+    <div style={styles.card} id={id}>
+      <div style={{ ...styles.cardHead, background: accent || NAVY }}>{title}</div>
+      <div style={styles.cardBody}>{children}</div>
+    </div>
+  );
+}
+
+function ParamInput({ label, value, onChange, type = "number", step, min, max, options, suffix }) {
+  return (
+    <div style={styles.paramGroup}>
+      <label style={styles.label}>{label}</label>
+      <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+        {options ? (
+          <select style={styles.select} value={value} onChange={e => onChange(type === "number" ? parseFloat(e.target.value) : e.target.value)}>
+            {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        ) : (
+          <input type={type} style={styles.inputWide} value={value} step={step || "any"} min={min} max={max}
+            onChange={e => onChange(type === "number" ? parseFloat(e.target.value) : e.target.value)} />
+        )}
+        {suffix && <span style={{ fontSize: "11px", color: "#777" }}>{suffix}</span>}
+      </div>
+    </div>
+  );
+}
+
+function ResultCard({ label, outcome, result, isBinding, protocol, poweringLevel }) {
+  const bg = outcome === "htn" ? "#EBF0F9" : "#E8F5E9";
+  const color = outcome === "htn" ? ACCENT : GREEN;
+  const isSiteLevel = poweringLevel === "site";
+  const clustersPerArmPerSite = isSiteLevel ? result.clusters : Math.ceil(result.clusters / NUM_SITES);
+  const totalClusters = isSiteLevel ? result.clusters * 2 * NUM_SITES : result.clusters * 2;
+  const totalParticipants = isSiteLevel ? result.total_per_arm * 2 * NUM_SITES : result.total_per_arm * 2;
+  const v3Total = protocol.clusters_per_arm_per_site * 2 * NUM_SITES;
+  return (
+    <div style={{ ...styles.resultBox, background: bg, border: `1px solid ${color}30` }}>
+      <div style={{ fontSize: "13px", fontWeight: "700", color, marginBottom: "8px" }}>
+        {label} {isBinding && <span style={styles.bindingTag}>BINDING OUTCOME</span>}
+        <span style={{ ...styles.badge, background: isSiteLevel ? PURPLE : ACCENT, color: "white" }}>
+          {isSiteLevel ? "Powered per site" : "Study-level power"}
+        </span>
+      </div>
+      <div style={styles.compRow}>
+        <div><div style={styles.compLabel}>Design Effect</div><div style={styles.compVal}>{result.de.toFixed(2)}</div></div>
+        <div><div style={styles.compLabel}>Effective ICC</div><div style={styles.compVal}>{result.icc_eff.toFixed(4)}</div></div>
+        <div><div style={styles.compLabel}>n (no clustering)</div><div style={styles.compVal}>{result.n_ind.toLocaleString()}</div></div>
+      </div>
+      <div style={styles.divider} />
+      <div style={styles.compRow}>
+        <div><div style={styles.compLabel}>Clusters/arm/site</div><div style={{ ...styles.compVal, fontSize: "18px", color }}>{clustersPerArmPerSite}</div></div>
+        <div><div style={styles.compLabel}>Total clusters ({NUM_SITES} sites)</div><div style={{ ...styles.compVal, fontSize: "18px", color }}>{totalClusters.toLocaleString()}</div></div>
+        <div><div style={styles.compLabel}>Total participants</div><div style={{ ...styles.compVal, fontSize: "18px", color }}>{totalParticipants.toLocaleString()}</div></div>
+      </div>
+      {protocol && (
+        <>
+          <div style={styles.divider} />
+          <div style={{ fontSize: "11px", color: "#777" }}>
+            Protocol V3: {protocol.clusters_per_arm_per_site} clusters/arm/site, {v3Total} total clusters, {protocol.total_patients.toLocaleString()} total patients
+            <span style={{ ...styles.badge, background: totalClusters <= v3Total ? GREEN : ORANGE, color: "white" }}>
+              {totalClusters <= v3Total ? "Within budget" : "Exceeds V3"}
+            </span>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Export Summary ──────────────────────────────────────────────────────────
+function generateExportHTML(params) {
+  const {
+    effectiveICCHTN, effectiveICCDM, htnResult, dmResult, htn_p_control, htn_effect,
+    dm_p_control, dm_effect, htn_clusterSize, dm_clusterSize, alpha, power, attrition,
+    cv, stratified, stratR2, poweringLevel, htnBinding, siteICCData,
+  } = params;
+
+  const isSite = poweringLevel === "site";
+  const htnCPAS = isSite ? htnResult.clusters : Math.ceil(htnResult.clusters / NUM_SITES);
+  const dmCPAS = isSite ? dmResult.clusters : Math.ceil(dmResult.clusters / NUM_SITES);
+  const htnTotal = isSite ? htnResult.clusters * 2 * NUM_SITES : htnResult.clusters * 2;
+  const dmTotal = isSite ? dmResult.clusters * 2 * NUM_SITES : dmResult.clusters * 2;
+  const htnPart = isSite ? htnResult.total_per_arm * 2 * NUM_SITES : htnResult.total_per_arm * 2;
+  const dmPart = isSite ? dmResult.total_per_arm * 2 * NUM_SITES : dmResult.total_per_arm * 2;
+  const bindingTotal = Math.max(htnTotal, dmTotal);
+  const bindingPart = htnBinding ? htnPart : dmPart;
+  const now = new Date().toLocaleString("en-IN", { dateStyle: "long", timeStyle: "short" });
+
+  const siteRows = siteICCData.map(s => `
+    <tr>
+      <td>${s.name}</td><td>${s.n}</td><td>${s.clusters}</td>
+      <td>${s.iccBP !== null ? s.iccBP.toFixed(4) : "—"} ${s.iccBPPooled ? '<span class="pooled">pooled</span>' : ""} ${s.insufficient ? '<span class="insuff">insufficient</span>' : ""}</td>
+      <td>${s.iccGlyc !== null ? s.iccGlyc.toFixed(4) : "—"} ${s.iccGlycPooled ? '<span class="pooled">pooled</span>' : ""} ${s.insufficient ? '<span class="insuff">insufficient</span>' : ""}</td>
+    </tr>`).join("");
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>STEPS-INDIA Sample Size Summary</title>
+<style>
+  body { font-family: 'Segoe UI', sans-serif; max-width: 800px; margin: 40px auto; color: #222; line-height: 1.6; padding: 0 20px; }
+  h1 { color: #002060; font-size: 20px; border-bottom: 2px solid #4472C4; padding-bottom: 6px; }
+  h2 { color: #4472C4; font-size: 16px; margin-top: 24px; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+  th { background: #E8EDF3; padding: 8px 10px; text-align: left; font-weight: 600; border-bottom: 2px solid #4472C4; color: #002060; }
+  td { padding: 6px 10px; border-bottom: 1px solid #EEE; }
+  tr:nth-child(even) { background: #F8FAFC; }
+  .highlight { background: #E8F5E9; border: 1px solid #C8E6C9; border-radius: 6px; padding: 12px 16px; margin: 16px 0; }
+  .binding { background: #C00000; color: white; padding: 2px 8px; border-radius: 8px; font-size: 10px; font-weight: 700; }
+  .pooled { background: #FFF3CD; color: #856404; padding: 1px 5px; border-radius: 6px; font-size: 9px; font-weight: 700; }
+  .insuff { background: #F8D7DA; color: #721C24; padding: 1px 5px; border-radius: 6px; font-size: 9px; font-weight: 700; }
+  .footer { font-size: 11px; color: #999; margin-top: 32px; border-top: 1px solid #EEE; padding-top: 12px; }
+  .v3 { color: #999; }
+  @media print { body { margin: 20px; } .no-print { display: none; } }
+</style></head><body>
+<h1>STEPS-INDIA CRCT Sample Size Summary</h1>
+<p style="color:#666; font-size:13px;">Generated: ${now} | Investigators' Meeting, Jammu, April 15-17, 2026</p>
+
+<h2>Data Source</h2>
+<p>Baseline cross-sectional survey (${SURVEY_DATA.date}): <strong>${SURVEY_DATA.totalN.toLocaleString()}</strong> participants across <strong>${SURVEY_DATA.totalClusters}</strong> clusters at 6 sites. ICCs estimated using GEE with exchangeable correlation structure.</p>
+
+<h2>Site-wise ICCs Used</h2>
+<table>
+  <tr><th>Site</th><th>N</th><th>Clusters</th><th>ICC (BP Control)</th><th>ICC (Glycemic)</th></tr>
+  ${siteRows}
+  <tr style="font-weight:700; background:#E8EDF3">
+    <td>Overall (pooled, GEE)</td><td>${SURVEY_DATA.totalN}</td><td>${SURVEY_DATA.totalClusters}</td>
+    <td>${SURVEY_DATA.overall.iccBP_gee.toFixed(4)}</td><td>${SURVEY_DATA.overall.iccGlyc_gee.toFixed(4)}</td>
+  </tr>
+</table>
+<p style="font-size:11px; color:#666;">Sites with ICC=0 or insufficient data use the overall pooled GEE estimate. AIIMS New Delhi & HRIDAY (N=123, 7 clusters) has insufficient data for reliable ICC estimation.</p>
+
+<h2>Design Parameters</h2>
+<table>
+  <tr><th>Parameter</th><th>BP Control (HTN)</th><th>Glycemic Control (DM)</th></tr>
+  <tr><td>Baseline control rate</td><td>${(htn_p_control * 100).toFixed(1)}%</td><td>${(dm_p_control * 100).toFixed(1)}%</td></tr>
+  <tr><td>Absolute effect size</td><td>${(htn_effect * 100).toFixed(1)} pp</td><td>${(dm_effect * 100).toFixed(1)} pp</td></tr>
+  <tr><td>Intervention rate (expected)</td><td>${((htn_p_control + htn_effect) * 100).toFixed(1)}%</td><td>${((dm_p_control + dm_effect) * 100).toFixed(1)}%</td></tr>
+  <tr><td>Cluster size (m)</td><td>${htn_clusterSize}</td><td>${dm_clusterSize}</td></tr>
+  <tr><td>ICC used</td><td>${effectiveICCHTN.toFixed(4)} <span class="v3">(V3: 0.10)</span></td><td>${effectiveICCDM.toFixed(4)} <span class="v3">(V3: 0.05)</span></td></tr>
+  <tr><td>Alpha (two-sided)</td><td colspan="2">${alpha} (Bonferroni for co-primary outcomes)</td></tr>
+  <tr><td>Power (1-beta)</td><td colspan="2">${(power * 100).toFixed(0)}%</td></tr>
+  <tr><td>Attrition</td><td colspan="2">${(attrition * 100).toFixed(0)}%</td></tr>
+  <tr><td>CV of cluster size</td><td colspan="2">${cv.toFixed(2)} ${cv > 0 ? "(Eldridge adjustment applied)" : ""}</td></tr>
+  <tr><td>Stratified randomization</td><td colspan="2">${stratified ? `Yes (R\u00B2=${stratR2.toFixed(2)})` : "No"}</td></tr>
+  <tr><td>Powering level</td><td colspan="2">${isSite ? "Each site independently" : "Whole study (pooled)"}</td></tr>
+</table>
+
+<h2>Results</h2>
+<div class="highlight">
+  <table>
+    <tr><th>Outcome</th><th>Design Effect</th><th>Clusters/Arm/Site</th><th>Total Clusters</th><th>Total Participants</th><th></th></tr>
+    <tr>
+      <td><strong>BP Control</strong></td><td>${htnResult.de.toFixed(2)}</td>
+      <td>${htnCPAS}</td><td>${htnTotal}</td><td>${htnPart.toLocaleString()}</td>
+      <td>${htnBinding ? '<span class="binding">BINDING</span>' : ""}</td>
+    </tr>
+    <tr>
+      <td><strong>Glycemic Control</strong></td><td>${dmResult.de.toFixed(2)}</td>
+      <td>${dmCPAS}</td><td>${dmTotal}</td><td>${dmPart.toLocaleString()}</td>
+      <td>${!htnBinding ? '<span class="binding">BINDING</span>' : ""}</td>
+    </tr>
+  </table>
+  <p style="margin-top:12px; font-weight:600;">
+    Required: <strong>${Math.max(htnCPAS, dmCPAS)} clusters per arm per site</strong> =
+    <strong>${bindingTotal} total clusters</strong> across ${NUM_SITES} sites
+  </p>
+</div>
+
+<h2>Comparison with Protocol V3</h2>
+<table>
+  <tr><th>Parameter</th><th>Revised</th><th>Protocol V3</th><th>Change</th></tr>
+  <tr><td>ICC (BP)</td><td>${effectiveICCHTN.toFixed(4)}</td><td>0.1000</td><td>${effectiveICCHTN < 0.10 ? "Lower (fewer clusters)" : "Higher"}</td></tr>
+  <tr><td>ICC (Glycemic)</td><td>${effectiveICCDM.toFixed(4)}</td><td>0.0500</td><td>${effectiveICCDM < 0.05 ? "Lower" : "Higher (more clusters)"}</td></tr>
+  <tr><td>Total clusters (binding)</td><td>${bindingTotal}</td><td>360</td><td>${bindingTotal < 360 ? "Reduced by " + (360 - bindingTotal) : "Increased by " + (bindingTotal - 360)}</td></tr>
+  <tr><td>Baseline BP control</td><td>${(htn_p_control * 100).toFixed(1)}%</td><td>22.0%</td><td>From survey data</td></tr>
+  <tr><td>Baseline glycemic control</td><td>${(dm_p_control * 100).toFixed(1)}%</td><td>30.0%</td><td>From survey data</td></tr>
+</table>
+
+<div class="footer">
+  STEPS-INDIA CRCT Sample Size Calculator v2.0 | ICMR-NHRP Funded<br>
+  Formulas: Donner & Klar (1981); Hayes & Bennett (1999); Eldridge et al. (2006); Rutterford, Copas & Eldridge (2015)<br>
+  ICCs from baseline survey using GEE with exchangeable correlation (Zou & Donner 2004)
+</div>
+</body></html>`;
+}
+
+// ─── Main App ────────────────────────────────────────────────────────────────
+function App() {
+  // Initialize ICCs from survey data, substituting pooled where ICC=0 or insufficient
+  const pooledBP = SURVEY_DATA.overall.iccBP_gee;
+  const pooledGlyc = SURVEY_DATA.overall.iccGlyc_gee;
+
+  const initialICCHTN = SURVEY_DATA.sites.map(s =>
+    s.insufficient ? pooledBP : (s.iccBP === 0.0 ? pooledBP : s.iccBP)
+  );
+  const initialICCDM = SURVEY_DATA.sites.map(s =>
+    s.insufficient ? pooledGlyc : (s.iccGlyc === 0.0 ? pooledGlyc : (s.iccGlyc === null ? pooledGlyc : s.iccGlyc))
+  );
+  // Track which values are pooled substitutions
+  const iccBPIsPooled = SURVEY_DATA.sites.map(s => s.insufficient || s.iccBP === 0.0 || s.iccBP === null);
+  const iccGlycIsPooled = SURVEY_DATA.sites.map(s => s.insufficient || s.iccGlyc === 0.0 || s.iccGlyc === null);
+
+  // ICC inputs
+  const [iccHTN, setIccHTN] = useState(initialICCHTN.map(v => v.toFixed(4)));
+  const [iccDM, setIccDM] = useState(initialICCDM.map(v => v.toFixed(4)));
+  const [siteWeights, setSiteWeights] = useState(SURVEY_DATA.sites.map(s => s.clusters));
+
+  // Trial parameters — HTN (updated from survey: baseline 19.8%)
+  const [htn_p_control, setHtnPControl] = useState(0.198);
+  const [htn_effect, setHtnEffect] = useState(0.105);
+  const [htn_clusterSize, setHtnClusterSize] = useState(25);
+
+  // Trial parameters — DM (survey: 32.0%)
+  const [dm_p_control, setDmPControl] = useState(0.32);
+  const [dm_effect, setDmEffect] = useState(0.084);
+  const [dm_clusterSize, setDmClusterSize] = useState(15);
+
+  // Shared parameters
+  const [alpha, setAlpha] = useState(0.025);
+  const [power, setPower] = useState(0.90);
+  const [attrition, setAttrition] = useState(0.15);
+  const [cv, setCv] = useState(0.20);
+  const [stratified, setStratified] = useState(true);
+  const [stratR2, setStratR2] = useState(0.10);
+  const [poweringLevel, setPoweringLevel] = useState("study");
+
+  // ICC source: "survey" (pooled from table), "manual" (user overrides)
+  const [iccSource, setIccSource] = useState("survey");
+  const [manualICCHTN, setManualICCHTN] = useState(pooledBP);
+  const [manualICCDM, setManualICCDM] = useState(pooledGlyc);
+
+  // Compute weighted pooled ICCs from table
+  const pooledHTN = useMemo(() => computePooledICC(iccHTN, siteWeights), [iccHTN, siteWeights]);
+  const pooledDM_calc = useMemo(() => computePooledICC(iccDM, siteWeights), [iccDM, siteWeights]);
+
+  const effectiveICCHTN = iccSource === "manual" ? manualICCHTN : (pooledHTN ?? pooledBP);
+  const effectiveICCDM = iccSource === "manual" ? manualICCDM : (pooledDM_calc ?? pooledGlyc);
+
+  // Compute results
+  const htnResult = useMemo(() =>
+    sampleSizePerArm(htn_p_control, htn_p_control + htn_effect, alpha, power, htn_clusterSize, effectiveICCHTN, cv, attrition, stratified ? stratR2 : 0),
+    [htn_p_control, htn_effect, alpha, power, htn_clusterSize, effectiveICCHTN, cv, attrition, stratified, stratR2]
+  );
+
+  const dmResult = useMemo(() =>
+    sampleSizePerArm(dm_p_control, dm_p_control + dm_effect, alpha, power, dm_clusterSize, effectiveICCDM, cv, attrition, stratified ? stratR2 : 0),
+    [dm_p_control, dm_effect, alpha, power, dm_clusterSize, effectiveICCDM, cv, attrition, stratified, stratR2]
+  );
+
+  const htnTotalClusters = htnResult.clusters * 2 * (poweringLevel === "site" ? NUM_SITES : 1);
+  const dmTotalClusters = dmResult.clusters * 2 * (poweringLevel === "site" ? NUM_SITES : 1);
+  const htnBinding = htnTotalClusters >= dmTotalClusters;
+
+  // Sensitivity: ICC
+  const sensitivityICC = useMemo(() => {
+    const data = [];
+    const mult = poweringLevel === "site" ? NUM_SITES : 1;
+    for (let icc = 0.01; icc <= 0.15; icc += 0.005) {
+      const h = sampleSizePerArm(htn_p_control, htn_p_control + htn_effect, alpha, power, htn_clusterSize, icc, cv, attrition, stratified ? stratR2 : 0);
+      const d = sampleSizePerArm(dm_p_control, dm_p_control + dm_effect, alpha, power, dm_clusterSize, icc, cv, attrition, stratified ? stratR2 : 0);
+      data.push({ icc: icc.toFixed(3), HTN_Clusters: h.clusters * 2 * mult, DM_Clusters: d.clusters * 2 * mult });
+    }
+    return data;
+  }, [htn_p_control, htn_effect, dm_p_control, dm_effect, alpha, power, htn_clusterSize, dm_clusterSize, cv, attrition, stratified, stratR2, poweringLevel]);
+
+  // Sensitivity: cluster size
+  const sensitivityCluster = useMemo(() => {
+    const data = [];
+    const mult = poweringLevel === "site" ? NUM_SITES : 1;
+    for (let m = 5; m <= 50; m += 5) {
+      const h = sampleSizePerArm(htn_p_control, htn_p_control + htn_effect, alpha, power, m, effectiveICCHTN, cv, attrition, stratified ? stratR2 : 0);
+      const d = sampleSizePerArm(dm_p_control, dm_p_control + dm_effect, alpha, power, m, effectiveICCDM, cv, attrition, stratified ? stratR2 : 0);
+      data.push({ cluster_size: m, HTN_Clusters: h.clusters * 2 * mult, HTN_Participants: h.total_per_arm * 2 * mult, DM_Clusters: d.clusters * 2 * mult, DM_Participants: d.total_per_arm * 2 * mult });
+    }
+    return data;
+  }, [htn_p_control, htn_effect, dm_p_control, dm_effect, alpha, power, effectiveICCHTN, effectiveICCDM, cv, attrition, stratified, stratR2, poweringLevel]);
+
+  // MDE data
+  const mdeData = useMemo(() => {
+    const data = [];
+    for (let c = 10; c <= 60; c += 5) {
+      let lo = 0.01, hi = 0.30, eff = 0;
+      for (let iter = 0; iter < 50; iter++) {
+        eff = (lo + hi) / 2;
+        const r = sampleSizePerArm(htn_p_control, htn_p_control + eff, alpha, power, htn_clusterSize, effectiveICCHTN, cv, attrition, stratified ? stratR2 : 0);
+        const needed = poweringLevel === "site" ? r.clusters : Math.ceil(r.clusters / NUM_SITES);
+        if (needed > c) lo = eff; else hi = eff;
+      }
+      let lo2 = 0.01, hi2 = 0.30, eff2 = 0;
+      for (let iter = 0; iter < 50; iter++) {
+        eff2 = (lo2 + hi2) / 2;
+        const r = sampleSizePerArm(dm_p_control, dm_p_control + eff2, alpha, power, dm_clusterSize, effectiveICCDM, cv, attrition, stratified ? stratR2 : 0);
+        const needed = poweringLevel === "site" ? r.clusters : Math.ceil(r.clusters / NUM_SITES);
+        if (needed > c) lo2 = eff2; else hi2 = eff2;
+      }
+      data.push({
+        clusters_per_arm: c,
+        HTN_MDE: parseFloat((eff * 100).toFixed(1)),
+        DM_MDE: parseFloat((eff2 * 100).toFixed(1)),
+      });
+    }
+    return data;
+  }, [htn_p_control, dm_p_control, alpha, power, htn_clusterSize, dm_clusterSize, effectiveICCHTN, effectiveICCDM, cv, attrition, stratified, stratR2, poweringLevel]);
+
+  const updateICC = useCallback((arr, setter, idx, val) => {
+    const next = [...arr];
+    next[idx] = val;
+    setter(next);
+  }, []);
+
+  // Export handler
+  const handleExport = () => {
+    const siteICCData = SITES.map((name, i) => ({
+      name,
+      n: SURVEY_DATA.sites[i].n,
+      clusters: SURVEY_DATA.sites[i].clusters,
+      iccBP: parseFloat(iccHTN[i]) || 0,
+      iccGlyc: parseFloat(iccDM[i]) || 0,
+      iccBPPooled: iccBPIsPooled[i],
+      iccGlycPooled: iccGlycIsPooled[i],
+      insufficient: SURVEY_DATA.sites[i].insufficient || false,
+    }));
+
+    const html = generateExportHTML({
+      effectiveICCHTN, effectiveICCDM, htnResult, dmResult,
+      htn_p_control, htn_effect, dm_p_control, dm_effect,
+      htn_clusterSize, dm_clusterSize, alpha, power, attrition,
+      cv, stratified, stratR2, poweringLevel, htnBinding, siteICCData,
+    });
+
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `STEPS-INDIA_SampleSize_Summary_${new Date().toISOString().slice(0, 10)}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div style={styles.app}>
+      {/* Header */}
+      <div style={styles.header}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div>
+            <h1 style={styles.headerTitle}>STEPS-INDIA CRCT Sample Size Calculator</h1>
+            <p style={styles.headerSub}>
+              Interactive tool for finalizing cluster count and sample size using baseline survey ICCs
+              &nbsp;|&nbsp; Co-primary outcomes (BP &amp; Glycemic Control) &nbsp;|&nbsp; v2.0
+            </p>
+          </div>
+          <button style={styles.exportBtn} onClick={handleExport}>
+            Export Summary
+          </button>
+        </div>
+      </div>
+
+      <div style={styles.container}>
+        {/* Survey Data Banner */}
+        <div style={styles.surveyBanner}>
+          <div style={{ fontSize: "20px" }}>&#128202;</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: "13px", fontWeight: "700", color: GREEN }}>
+              Pre-populated from Baseline Survey ({SURVEY_DATA.date})
+            </div>
+            <div style={{ fontSize: "11.5px", color: "#555" }}>
+              {SURVEY_DATA.totalN.toLocaleString()} participants | {SURVEY_DATA.totalClusters} clusters | 6 sites |
+              ICCs via GEE (exchangeable correlation) |
+              Sites with ICC=0 or insufficient data use pooled overall estimate
+            </div>
+          </div>
+          <div style={{ textAlign: "right", fontSize: "11px", color: "#777" }}>
+            <div>Overall BP Ctrl: <strong>{SURVEY_DATA.overall.bpCtrl}%</strong></div>
+            <div>Overall Glyc Ctrl: <strong>{SURVEY_DATA.overall.glycCtrl}%</strong></div>
+          </div>
+        </div>
+
+        {/* ── Panel 1: ICC Input ── */}
+        <div style={styles.sectionTitle}>1. Intraclass Correlation Coefficients (ICCs)</div>
+        <div style={styles.grid2}>
+          <Card title="Site-wise ICCs from Baseline Survey (GEE)">
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>Site</th>
+                  <th style={{ ...styles.th, textAlign: "center" }}>N</th>
+                  <th style={{ ...styles.th, textAlign: "center" }}>ICC (BP Ctrl)</th>
+                  <th style={{ ...styles.th, textAlign: "center" }}>ICC (Glycemic)</th>
+                  <th style={{ ...styles.th, textAlign: "center" }}>Wt</th>
+                </tr>
+              </thead>
+              <tbody>
+                {SITES.map((site, i) => {
+                  const sd = SURVEY_DATA.sites[i];
+                  const isInsuff = sd.insufficient;
+                  return (
+                    <tr key={i} style={{ background: isInsuff ? "#FFF5F5" : (i % 2 === 0 ? "white" : "#F8FAFC") }}>
+                      <td style={{ ...styles.td, fontSize: "11.5px", fontWeight: "500" }}>
+                        {site}
+                        {isInsuff && <span style={styles.badgeInsuff}>low N</span>}
+                      </td>
+                      <td style={{ ...styles.td, textAlign: "center", fontSize: "11px", color: "#888" }}>
+                        {sd.n}
+                      </td>
+                      <td style={{ ...styles.td, textAlign: "center" }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "2px" }}>
+                          <input style={{ ...styles.input, background: iccBPIsPooled[i] ? "#FFF8E7" : "white" }} type="number" step="0.001" min="0" max="1"
+                            value={iccHTN[i]} onChange={e => updateICC(iccHTN, setIccHTN, i, e.target.value)} />
+                          {iccBPIsPooled[i] && <span style={styles.badgePooled}>pooled</span>}
+                          {!iccBPIsPooled[i] && <span style={styles.badgeSurvey}>survey</span>}
+                        </div>
+                      </td>
+                      <td style={{ ...styles.td, textAlign: "center" }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "2px" }}>
+                          <input style={{ ...styles.input, background: iccGlycIsPooled[i] ? "#FFF8E7" : "white" }} type="number" step="0.001" min="0" max="1"
+                            value={iccDM[i]} onChange={e => updateICC(iccDM, setIccDM, i, e.target.value)} />
+                          {iccGlycIsPooled[i] && <span style={styles.badgePooled}>pooled</span>}
+                          {!iccGlycIsPooled[i] && <span style={styles.badgeSurvey}>survey</span>}
+                        </div>
+                      </td>
+                      <td style={{ ...styles.td, textAlign: "center" }}>
+                        <input style={{ ...styles.input, width: "50px" }} type="number" step="1" min="1"
+                          value={siteWeights[i]} onChange={e => { const w = [...siteWeights]; w[i] = parseInt(e.target.value) || 1; setSiteWeights(w); }} />
+                      </td>
+                    </tr>
+                  );
+                })}
+                <tr style={{ background: "#E8EDF3", fontWeight: "700" }}>
+                  <td style={{ ...styles.td, fontWeight: "700" }} colSpan={2}>Weighted Pooled</td>
+                  <td style={{ ...styles.td, textAlign: "center", color: ACCENT, fontWeight: "700" }}>{pooledHTN !== null ? pooledHTN.toFixed(4) : "—"}</td>
+                  <td style={{ ...styles.td, textAlign: "center", color: GREEN, fontWeight: "700" }}>{pooledDM_calc !== null ? pooledDM_calc.toFixed(4) : "—"}</td>
+                  <td style={styles.td}></td>
+                </tr>
+              </tbody>
+            </table>
+            <div style={styles.note}>
+              <strong>Legend:</strong> <span style={styles.badgeSurvey}>survey</span> = site-specific GEE estimate |
+              <span style={styles.badgePooled}>pooled</span> = overall pooled ICC (site had ICC=0 or insufficient data) |
+              <span style={styles.badgeInsuff}>low N</span> = &lt;200 participants, unreliable estimate.
+              <br />Weights default to cluster count; editable. Per Giraudeau (2006), ICCs from pre-randomization data.
+            </div>
+          </Card>
+
+          <Card title="ICC Source for Calculation">
+            <div style={{ marginBottom: "16px" }}>
+              <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
+                <button style={{ ...styles.toggleBtn, ...(iccSource === "survey" ? styles.toggleActive : {}) }} onClick={() => setIccSource("survey")}>
+                  Survey Pooled (recommended)
+                </button>
+                <button style={{ ...styles.toggleBtn, ...(iccSource === "manual" ? styles.toggleActive : {}) }} onClick={() => setIccSource("manual")}>
+                  Manual Override
+                </button>
+              </div>
+
+              {iccSource === "manual" ? (
+                <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
+                  <ParamInput label="ICC - BP Control" value={manualICCHTN} onChange={setManualICCHTN} step="0.005" min={0} max={0.5} />
+                  <ParamInput label="ICC - Glycemic Control" value={manualICCDM} onChange={setManualICCDM} step="0.005" min={0} max={0.5} />
+                </div>
+              ) : (
+                <div style={{ padding: "10px", background: "#E8F5E9", borderRadius: "6px", fontSize: "12.5px" }}>
+                  Using weighted pooled ICCs from site table above:<br />
+                  <strong>HTN = {effectiveICCHTN.toFixed(4)}</strong> | <strong>DM = {effectiveICCDM.toFixed(4)}</strong>
+                </div>
+              )}
+            </div>
+
+            <div style={styles.divider} />
+            <div style={{ fontSize: "12px", color: "#555", lineHeight: "1.6" }}>
+              <strong>Currently using:</strong><br />
+              BP Control ICC: <span style={{ fontWeight: "700", color: ACCENT }}>{effectiveICCHTN.toFixed(4)}</span>
+              {effectiveICCHTN !== PROTOCOL_V3.htn.icc && (
+                <span style={{ ...styles.badge, background: effectiveICCHTN < PROTOCOL_V3.htn.icc ? GREEN : ORANGE, color: "white" }}>
+                  V3 was {PROTOCOL_V3.htn.icc}
+                </span>
+              )}<br />
+              Glycemic ICC: <span style={{ fontWeight: "700", color: GREEN }}>{effectiveICCDM.toFixed(4)}</span>
+              {effectiveICCDM !== PROTOCOL_V3.dm.icc && (
+                <span style={{ ...styles.badge, background: effectiveICCDM < PROTOCOL_V3.dm.icc ? GREEN : ORANGE, color: "white" }}>
+                  V3 was {PROTOCOL_V3.dm.icc}
+                </span>
+              )}
+            </div>
+
+            <div style={{ ...styles.note, marginTop: "12px" }}>
+              <strong>Key findings from survey:</strong><br />
+              BP ICC (0.039) is ~60% lower than V3 assumption (0.10) — fewer clusters needed<br />
+              Glycemic ICC (0.063) is ~26% higher than V3 (0.05) — may need more clusters<br />
+              <em>AIIMS Delhi uses pooled values (survey ongoing, N=123 of planned 1200)</em>
+            </div>
+
+            {/* Comparison: Survey vs V3 */}
+            <div style={{ marginTop: "12px" }}>
+              <table style={{ ...styles.table, fontSize: "11.5px" }}>
+                <thead>
+                  <tr>
+                    <th style={{ ...styles.th, fontSize: "10.5px" }}>Source</th>
+                    <th style={{ ...styles.th, textAlign: "center", fontSize: "10.5px" }}>ICC (BP)</th>
+                    <th style={{ ...styles.th, textAlign: "center", fontSize: "10.5px" }}>ICC (Glyc)</th>
+                    <th style={{ ...styles.th, textAlign: "center", fontSize: "10.5px" }}>BP Ctrl</th>
+                    <th style={{ ...styles.th, textAlign: "center", fontSize: "10.5px" }}>Glyc Ctrl</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style={{ ...styles.td, fontWeight: "600" }}>Survey (GEE)</td>
+                    <td style={{ ...styles.td, textAlign: "center", fontWeight: "700", color: ACCENT }}>{SURVEY_DATA.overall.iccBP_gee.toFixed(4)}</td>
+                    <td style={{ ...styles.td, textAlign: "center", fontWeight: "700", color: GREEN }}>{SURVEY_DATA.overall.iccGlyc_gee.toFixed(4)}</td>
+                    <td style={{ ...styles.td, textAlign: "center" }}>{SURVEY_DATA.overall.bpCtrl}%</td>
+                    <td style={{ ...styles.td, textAlign: "center" }}>{SURVEY_DATA.overall.glycCtrl}%</td>
+                  </tr>
+                  <tr style={{ color: "#999" }}>
+                    <td style={{ ...styles.td }}>Survey (ANOVA)</td>
+                    <td style={{ ...styles.td, textAlign: "center" }}>{SURVEY_DATA.overall.iccBP_anova}</td>
+                    <td style={{ ...styles.td, textAlign: "center" }}>{SURVEY_DATA.overall.iccGlyc_anova}</td>
+                    <td style={{ ...styles.td, textAlign: "center" }}>—</td>
+                    <td style={{ ...styles.td, textAlign: "center" }}>—</td>
+                  </tr>
+                  <tr style={{ color: "#999" }}>
+                    <td style={{ ...styles.td }}>Protocol V3</td>
+                    <td style={{ ...styles.td, textAlign: "center" }}>0.1000</td>
+                    <td style={{ ...styles.td, textAlign: "center" }}>0.0500</td>
+                    <td style={{ ...styles.td, textAlign: "center" }}>22.0%</td>
+                    <td style={{ ...styles.td, textAlign: "center" }}>30.0%</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </div>
+
+        {/* ── Panel 2: Trial Parameters ── */}
+        <div style={styles.sectionTitle}>2. Trial Design Parameters</div>
+        <div style={styles.grid2}>
+          <Card title="Hypertension (BP Control)" accent={ACCENT}>
+            <div style={styles.paramRow}>
+              <ParamInput label="Baseline control rate" value={htn_p_control} onChange={setHtnPControl} step="0.01" min={0.01} max={0.99} />
+              <ParamInput label="Absolute effect size" value={htn_effect} onChange={setHtnEffect} step="0.005" min={0.01} max={0.50} />
+              <ParamInput label="Intervention rate" value={(htn_p_control + htn_effect).toFixed(3)} onChange={() => {}} suffix="(derived)" />
+            </div>
+            <div style={styles.paramRow}>
+              <ParamInput label="Cluster size (m)" value={htn_clusterSize} onChange={setHtnClusterSize} step="1" min={5} max={100} />
+              <div style={styles.paramGroup}>
+                <label style={styles.label}>Relative effect</label>
+                <span style={{ fontSize: "13px", fontWeight: "700", color: ACCENT }}>
+                  {((htn_effect / htn_p_control) * 100).toFixed(1)}%
+                </span>
+              </div>
+            </div>
+          </Card>
+
+          <Card title="Diabetes (Glycemic Control)" accent={GREEN}>
+            <div style={styles.paramRow}>
+              <ParamInput label="Baseline control rate" value={dm_p_control} onChange={setDmPControl} step="0.01" min={0.01} max={0.99} />
+              <ParamInput label="Absolute effect size" value={dm_effect} onChange={setDmEffect} step="0.005" min={0.01} max={0.50} />
+              <ParamInput label="Intervention rate" value={(dm_p_control + dm_effect).toFixed(3)} onChange={() => {}} suffix="(derived)" />
+            </div>
+            <div style={styles.paramRow}>
+              <ParamInput label="Cluster size (m)" value={dm_clusterSize} onChange={setDmClusterSize} step="1" min={5} max={100} />
+              <div style={styles.paramGroup}>
+                <label style={styles.label}>Relative effect</label>
+                <span style={{ fontSize: "13px", fontWeight: "700", color: GREEN }}>
+                  {((dm_effect / dm_p_control) * 100).toFixed(1)}%
+                </span>
+              </div>
+            </div>
+          </Card>
+        </div>
+
+        <Card title="Shared Design Parameters">
+          <div style={styles.paramRow}>
+            <ParamInput label="Alpha (two-sided)" value={alpha} onChange={setAlpha}
+              options={[{ value: 0.05, label: "0.05" }, { value: 0.025, label: "0.025 (co-primary)" }, { value: 0.01, label: "0.01" }, { value: 0.005, label: "0.005" }]} />
+            <ParamInput label="Power (1-beta)" value={power} onChange={setPower}
+              options={[{ value: 0.80, label: "80%" }, { value: 0.85, label: "85%" }, { value: 0.90, label: "90%" }, { value: 0.95, label: "95%" }]} />
+            <ParamInput label="Attrition rate" value={attrition} onChange={setAttrition} step="0.05" min={0} max={0.50} suffix={`(${(attrition * 100).toFixed(0)}%)`} />
+            <ParamInput label="CV of cluster size" value={cv} onChange={setCv} step="0.05" min={0} max={1.0}
+              suffix={cv > 0.23 ? "high" : "OK"} />
+          </div>
+          <div style={styles.paramRow}>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              <label style={{ ...styles.label, margin: 0 }}>Stratified randomization:</label>
+              <button style={{ ...styles.toggleBtn, ...(stratified ? styles.toggleActive : {}) }} onClick={() => setStratified(true)}>Yes (by site)</button>
+              <button style={{ ...styles.toggleBtn, ...(!stratified ? styles.toggleActive : {}) }} onClick={() => setStratified(false)}>No</button>
+            </div>
+            {stratified && (
+              <ParamInput label="Variance explained (R-sq)" value={stratR2} onChange={setStratR2} step="0.05" min={0} max={0.50}
+                suffix="by strata" />
+            )}
+          </div>
+          <div style={styles.divider} />
+          <div style={styles.paramRow}>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              <label style={{ ...styles.label, margin: 0 }}>Powering level:</label>
+              <button style={{ ...styles.toggleBtn, ...(poweringLevel === "study" ? styles.toggleActive : {}) }} onClick={() => setPoweringLevel("study")}>
+                Whole study (pooled)
+              </button>
+              <button style={{ ...styles.toggleBtn, ...(poweringLevel === "site" ? { ...styles.toggleActive, background: PURPLE, border: `1px solid ${PURPLE}` } : {}) }} onClick={() => setPoweringLevel("site")}>
+                Each site independently
+              </button>
+            </div>
+          </div>
+          <div style={{ ...styles.note, background: poweringLevel === "site" ? "#F3E8F9" : "#FFF8E7", borderLeftColor: poweringLevel === "site" ? PURPLE : ORANGE }}>
+            {poweringLevel === "study" ? (
+              <>
+                <strong>Study-level powering:</strong> Sample size computed for the entire trial across {NUM_SITES} sites.
+                Total clusters are distributed across sites. The study is powered to detect the overall treatment effect,
+                but individual sites may lack power for site-specific subgroup analyses.
+                <br />Co-primary outcomes use alpha=0.025 each (Bonferroni). CV &gt; 0.23 triggers Eldridge adjustment.
+              </>
+            ) : (
+              <>
+                <strong>Site-level powering:</strong> Each of the {NUM_SITES} sites is independently powered to detect the treatment effect.
+                This yields {NUM_SITES}x the clusters of study-level powering. Use this if the analysis plan includes
+                site-specific effectiveness testing.
+                <br />Appropriate when sites represent distinct populations or health system contexts, as in STEPS-INDIA.
+              </>
+            )}
+          </div>
+        </Card>
+
+        {/* ── Panel 3: Results Dashboard ── */}
+        <div style={styles.sectionTitle}>3. Results Dashboard</div>
+        <ResultCard label="BP Control (Hypertension)" outcome="htn" result={htnResult} isBinding={htnBinding} protocol={PROTOCOL_V3.htn} poweringLevel={poweringLevel} />
+        <ResultCard label="Glycemic Control (Diabetes)" outcome="dm" result={dmResult} isBinding={!htnBinding} protocol={PROTOCOL_V3.dm} poweringLevel={poweringLevel} />
+
+        <Card title={`Summary: Revised (${poweringLevel === "site" ? "site-level" : "study-level"}) vs Protocol V3`}>
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th style={styles.th}>Parameter</th>
+                <th style={{ ...styles.th, textAlign: "center" }}>HTN (Revised)</th>
+                <th style={{ ...styles.th, textAlign: "center" }}>HTN (V3)</th>
+                <th style={{ ...styles.th, textAlign: "center" }}>DM (Revised)</th>
+                <th style={{ ...styles.th, textAlign: "center" }}>DM (V3)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(() => {
+                const isSite = poweringLevel === "site";
+                const htnCPAS = isSite ? htnResult.clusters : Math.ceil(htnResult.clusters / NUM_SITES);
+                const dmCPAS = isSite ? dmResult.clusters : Math.ceil(dmResult.clusters / NUM_SITES);
+                const htnTotal = isSite ? htnResult.clusters * 2 * NUM_SITES : htnResult.clusters * 2;
+                const dmTotal = isSite ? dmResult.clusters * 2 * NUM_SITES : dmResult.clusters * 2;
+                const htnPart = isSite ? htnResult.total_per_arm * 2 * NUM_SITES : htnResult.total_per_arm * 2;
+                const dmPart = isSite ? dmResult.total_per_arm * 2 * NUM_SITES : dmResult.total_per_arm * 2;
+                return [
+                  ["Powering level", isSite ? "Per site" : "Study-wide", "Per site (V3)", isSite ? "Per site" : "Study-wide", "Per site (V3)"],
+                  ["ICC used", effectiveICCHTN.toFixed(4), "0.1000", effectiveICCDM.toFixed(4), "0.0500"],
+                  ["Baseline control rate", (htn_p_control * 100).toFixed(1) + "%", "22.0%", (dm_p_control * 100).toFixed(1) + "%", "30.0%"],
+                  ["Design effect", htnResult.de.toFixed(2), designEffect(25, 0.10).toFixed(2), dmResult.de.toFixed(2), designEffect(15, 0.05).toFixed(2)],
+                  ["Cluster size", htn_clusterSize, 25, dm_clusterSize, 15],
+                  ["Clusters/arm/site", htnCPAS, 30, dmCPAS, 30],
+                  ["Total clusters", htnTotal.toLocaleString(), "360", dmTotal.toLocaleString(), "360"],
+                  ["Total participants", htnPart.toLocaleString(), "9,000", dmPart.toLocaleString(), "5,400"],
+                ].map(([param, h1, h2, d1, d2], i) => (
+                  <tr key={i} style={{ background: i % 2 === 0 ? "white" : "#F8FAFC" }}>
+                    <td style={{ ...styles.td, fontWeight: "600" }}>{param}</td>
+                    <td style={{ ...styles.td, textAlign: "center", fontWeight: "700", color: ACCENT }}>{h1}</td>
+                    <td style={{ ...styles.td, textAlign: "center", color: "#999" }}>{h2}</td>
+                    <td style={{ ...styles.td, textAlign: "center", fontWeight: "700", color: GREEN }}>{d1}</td>
+                    <td style={{ ...styles.td, textAlign: "center", color: "#999" }}>{d2}</td>
+                  </tr>
+                ));
+              })()}
+            </tbody>
+          </table>
+        </Card>
+
+        {/* ── Panel 4: Sensitivity Analysis ── */}
+        <div style={styles.sectionTitle}>4. Sensitivity Analysis</div>
+        <div style={styles.grid2}>
+          <Card title="Total Clusters vs ICC (both outcomes)">
+            <ResponsiveContainer width="100%" height={280}>
+              <LineChart data={sensitivityICC} margin={{ top: 10, right: 20, bottom: 5, left: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#EEE" />
+                <XAxis dataKey="icc" label={{ value: "ICC", position: "insideBottom", offset: -2, style: { fontSize: 11 } }} tick={{ fontSize: 10 }} />
+                <YAxis label={{ value: "Total Clusters", angle: -90, position: "insideLeft", style: { fontSize: 11 } }} tick={{ fontSize: 10 }} />
+                <Tooltip contentStyle={{ fontSize: 11 }} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <ReferenceLine x={effectiveICCHTN.toFixed(3)} stroke={ACCENT} strokeDasharray="5 5" label={{ value: "HTN ICC", position: "top", style: { fontSize: 9, fill: ACCENT } }} />
+                <ReferenceLine x={effectiveICCDM.toFixed(3)} stroke={GREEN} strokeDasharray="5 5" label={{ value: "DM ICC", position: "top", style: { fontSize: 9, fill: GREEN } }} />
+                <ReferenceLine y={360} stroke={RED} strokeDasharray="3 3" label={{ value: "V3: 360", position: "right", style: { fontSize: 9, fill: RED } }} />
+                <Line type="monotone" dataKey="HTN_Clusters" stroke={ACCENT} strokeWidth={2} dot={false} name="HTN" />
+                <Line type="monotone" dataKey="DM_Clusters" stroke={GREEN} strokeWidth={2} dot={false} name="DM" />
+              </LineChart>
+            </ResponsiveContainer>
+          </Card>
+
+          <Card title="Total Clusters vs Cluster Size">
+            <ResponsiveContainer width="100%" height={280}>
+              <LineChart data={sensitivityCluster} margin={{ top: 10, right: 20, bottom: 5, left: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#EEE" />
+                <XAxis dataKey="cluster_size" label={{ value: "Cluster Size (m)", position: "insideBottom", offset: -2, style: { fontSize: 11 } }} tick={{ fontSize: 10 }} />
+                <YAxis label={{ value: "Total Clusters", angle: -90, position: "insideLeft", style: { fontSize: 11 } }} tick={{ fontSize: 10 }} />
+                <Tooltip contentStyle={{ fontSize: 11 }} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <ReferenceLine y={360} stroke={RED} strokeDasharray="3 3" label={{ value: "V3: 360", position: "right", style: { fontSize: 9, fill: RED } }} />
+                <Line type="monotone" dataKey="HTN_Clusters" stroke={ACCENT} strokeWidth={2} dot={{ r: 3 }} name="HTN" />
+                <Line type="monotone" dataKey="DM_Clusters" stroke={GREEN} strokeWidth={2} dot={{ r: 3 }} name="DM" />
+              </LineChart>
+            </ResponsiveContainer>
+          </Card>
+        </div>
+
+        <Card title={`Minimum Detectable Effect (MDE) by Cluster Budget (${poweringLevel === "site" ? "per site" : "study-wide"})`}>
+          <ResponsiveContainer width="100%" height={280}>
+            <LineChart data={mdeData} margin={{ top: 10, right: 30, bottom: 5, left: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#EEE" />
+              <XAxis dataKey="clusters_per_arm" label={{ value: `Clusters per Arm${poweringLevel === "site" ? " per Site" : ""}`, position: "insideBottom", offset: -2, style: { fontSize: 11 } }} tick={{ fontSize: 10 }} />
+              <YAxis label={{ value: "MDE (percentage points)", angle: -90, position: "insideLeft", style: { fontSize: 11 } }} tick={{ fontSize: 10 }} domain={[0, 'auto']} />
+              <Tooltip contentStyle={{ fontSize: 11 }} formatter={(val) => `${val}pp`} />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <ReferenceLine x={30} stroke={RED} strokeDasharray="3 3" label={{ value: "V3: 30/arm/site", position: "top", style: { fontSize: 9, fill: RED } }} />
+              <Line type="monotone" dataKey="HTN_MDE" stroke={ACCENT} strokeWidth={2} dot={{ r: 3 }} name="HTN MDE" />
+              <Line type="monotone" dataKey="DM_MDE" stroke={GREEN} strokeWidth={2} dot={{ r: 3 }} name="DM MDE" />
+            </LineChart>
+          </ResponsiveContainer>
+          <div style={styles.note}>
+            Shows the minimum absolute effect size (in percentage points) detectable at the given number of clusters per arm
+            {poweringLevel === "site" ? " per site" : " across the whole study"}, holding all other parameters fixed. Lower MDE = greater sensitivity.
+          </div>
+        </Card>
+
+        {/* ── Formula Reference ── */}
+        <div style={styles.sectionTitle}>5. Formula Reference</div>
+        <Card title="Methodology &amp; Formulas">
+          <div style={{ fontSize: "12.5px", lineHeight: "1.8", color: "#333" }}>
+            <p><strong>Individual-level sample size</strong> (comparison of two proportions):</p>
+            <div style={{ background: "#F5F5F5", padding: "10px 14px", borderRadius: "4px", fontFamily: "monospace", fontSize: "12px", margin: "6px 0 12px" }}>
+              n = (z_alpha/2 + z_beta)^2 x [p1(1-p1) + p2(1-p2)] / (p1 - p2)^2
+            </div>
+
+            <p><strong>Design effect</strong> (Donner &amp; Klar):</p>
+            <div style={{ background: "#F5F5F5", padding: "10px 14px", borderRadius: "4px", fontFamily: "monospace", fontSize: "12px", margin: "6px 0 12px" }}>
+              DE = 1 + (m - 1) x rho
+            </div>
+
+            <p><strong>Adjusted DE for varying cluster sizes</strong> (Eldridge et al. 2006):</p>
+            <div style={{ background: "#F5F5F5", padding: "10px 14px", borderRadius: "4px", fontFamily: "monospace", fontSize: "12px", margin: "6px 0 12px" }}>
+              DE_adj = 1 + [(CV^2 + 1) x m - 1] x rho
+            </div>
+
+            <p><strong>Stratification adjustment</strong>:</p>
+            <div style={{ background: "#F5F5F5", padding: "10px 14px", borderRadius: "4px", fontFamily: "monospace", fontSize: "12px", margin: "6px 0 12px" }}>
+              rho_eff = rho x (1 - R^2), where R^2 = variance explained by strata
+            </div>
+
+            <p><strong>ICC estimation (from survey):</strong></p>
+            <div style={{ background: "#F5F5F5", padding: "10px 14px", borderRadius: "4px", fontFamily: "monospace", fontSize: "12px", margin: "6px 0 12px" }}>
+              GEE with exchangeable correlation structure (Zou &amp; Donner 2004)<br />
+              Sites with ICC=0 or N&lt;200: replaced with overall pooled estimate
+            </div>
+
+            <p style={{ fontSize: "11px", color: "#777", marginTop: "12px" }}>
+              <strong>References:</strong> Donner &amp; Klar (1981); Hayes &amp; Bennett (1999); Eldridge, Ashby &amp; Kerry (2006);
+              Rutterford, Copas &amp; Eldridge (2015); van Breukelen &amp; Candel (2012); Zou &amp; Donner (2004).
+              <br />Co-primary outcome alpha-adjustment per Bonferroni; CONSORT-CRT extension (Campbell et al. 2012).
+            </p>
+          </div>
+        </Card>
+
+        <div style={{ textAlign: "center", padding: "20px 0", fontSize: "11px", color: "#999" }}>
+          STEPS-INDIA CRCT Sample Size Calculator v2.0 &nbsp;|&nbsp; Baseline survey data: {SURVEY_DATA.date}
+          &nbsp;|&nbsp; Investigators' Meeting, Jammu, April 2026 &nbsp;|&nbsp; ICMR-NHRP Funded
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Initialize and render the application
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(React.createElement(App));
+    </script>
+</body>
+</html>
