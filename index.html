@@ -60,19 +60,53 @@ const PROTOCOL_V3 = {
 
 // ─── Survey ICC Data (GEE method, April 2026 baseline survey) ────────────────
 // Source: 01_ICC_Primary_Outcomes.qmd — GEE with exchangeable correlation
+// HbA1c availability: verified from raw data (sentinel value -999999999 = pending verification)
 const SURVEY_DATA = {
   date: "April 13, 2026",
   totalN: 4695,
   totalClusters: 237,
   sites: [
-    { name: "MGIMS Sevagram",           n: 1202, clusters: 60, htnN: 420, bpCtrl: 28.8, dmN: 180, glycCtrl: 43.3, iccBP: 0.0000, iccGlyc: 0.0000 },
-    { name: "AIIMS Bhopal",             n: 846,  clusters: 41, htnN: 352, bpCtrl: 23.0, dmN: 177, glycCtrl: 34.5, iccBP: 0.0360, iccGlyc: 0.1540 },
-    { name: "AIIMS Madurai",            n: 840,  clusters: 42, htnN: 393, bpCtrl: 21.1, dmN: 303, glycCtrl: 38.0, iccBP: 0.0127, iccGlyc: 0.0000 },
-    { name: "AIIMS Jammu",              n: 816,  clusters: 42, htnN: 426, bpCtrl: 12.7, dmN: 207, glycCtrl: 28.0, iccBP: 0.0258, iccGlyc: 0.0222 },
-    { name: "AIIMS New Delhi & HRIDAY", n: 123,  clusters: 7,  htnN: 47,  bpCtrl: 8.5,  dmN: 13,  glycCtrl: 0.0,  iccBP: null,   iccGlyc: null,  insufficient: true },
-    { name: "KIMS Odisha & INCLEN",     n: 868,  clusters: 45, htnN: 411, bpCtrl: 15.1, dmN: 126, glycCtrl: 7.9,  iccBP: 0.0478, iccGlyc: 0.2503 },
+    { name: "MGIMS Sevagram",           n: 1202, clusters: 60, htnN: 420, bpCtrl: 28.8, dmN: 89,  dmHba1cValid: 87,  dmClustersValid: 45, dmClustersTotal: 45, glycCtrl: 43.7, iccBP: 0.0000, iccGlyc: 0.0000 },
+    { name: "AIIMS Bhopal",             n: 846,  clusters: 41, htnN: 352, bpCtrl: 23.0, dmN: 146, dmHba1cValid: 91,  dmClustersValid: 25, dmClustersTotal: 36, glycCtrl: 51.6, iccBP: 0.0360, iccGlyc: 0.1540, lowHba1c: true },
+    { name: "AIIMS Madurai",            n: 840,  clusters: 42, htnN: 393, bpCtrl: 21.1, dmN: 205, dmHba1cValid: 205, dmClustersValid: 40, dmClustersTotal: 40, glycCtrl: 30.2, iccBP: 0.0127, iccGlyc: 0.0000 },
+    { name: "AIIMS Jammu",              n: 816,  clusters: 42, htnN: 426, bpCtrl: 12.7, dmN: 137, dmHba1cValid: 137, dmClustersValid: 41, dmClustersTotal: 41, glycCtrl: 28.5, iccBP: 0.0258, iccGlyc: 0.0222 },
+    { name: "AIIMS New Delhi & HRIDAY", n: 123,  clusters: 7,  htnN: 47,  bpCtrl: 8.5,  dmN: 14,  dmHba1cValid: 0,   dmClustersValid: 0,  dmClustersTotal: 5,  glycCtrl: null, iccBP: null,   iccGlyc: null,  insufficient: true },
+    { name: "KIMS Odisha & INCLEN",     n: 868,  clusters: 45, htnN: 411, bpCtrl: 15.1, dmN: 138, dmHba1cValid: 23,  dmClustersValid: 6,  dmClustersTotal: 38, glycCtrl: 30.4, iccBP: 0.0478, iccGlyc: 0.2503, lowHba1c: true },
   ],
-  overall: { bpCtrl: 19.8, glycCtrl: 32.0, iccBP_anova: 0.0508, iccGlyc_anova: 0.0842, iccBP_gee: 0.0386, iccGlyc_gee: 0.0632 },
+  overall: { bpCtrl: 19.8, glycCtrl: 35.5, iccBP_anova: 0.0508, iccGlyc_anova: 0.0842, iccBP_gee: 0.0386, iccGlyc_gee: 0.0632 },
+  hba1cNote: "543 of 729 DM patients (74.5%) have verified HbA1c. KIMS Odisha: 23/138 (16.7%), AIIMS Bhopal: 91/146 (62.3%). Glycemic ICCs at these sites are unreliable.",
+};
+
+// ─── CLD Evidence: Plausible effect size ranges (from eCES Causal Loop Diagrams) ─
+const CLD_EVIDENCE = {
+  htn: {
+    label: "BP Control (Hypertension)",
+    primaryEstimate: "−4.8 mmHg SBP",
+    primarySource: "Avery 2025 (BJGP), 54 RCTs, n=13,976",
+    rangeMMHG: "−2 to −8 mmHg SBP",
+    indiaEvidence: [
+      { study: "ACE-ME (rural India)", effect: "+22 pp BP control" },
+      { study: "SEHAT (CHW-facilitated)", effect: "−5.2 mmHg (95% CI −7.1 to −3.3)" },
+      { study: "IHCI (bundled)", effect: "+33.5 pp BP control" },
+    ],
+    protocolEffect: "10.5 pp absolute",
+    plausibleRangePP: { low: 5, mid: 10.5, high: 18 },
+    note: "Peer-specific HTN trials sparse (n=3). Primary estimate from broader lifestyle education category.",
+  },
+  dm: {
+    label: "Glycemic Control (Diabetes)",
+    primaryEstimate: "−0.53% HbA1c",
+    primarySource: "MoPoTsyo peer educator model (Rao 2020)",
+    rangeHbA1c: "−0.28% to −1.05% HbA1c",
+    indiaEvidence: [
+      { study: "ACE-ME (rural India)", effect: "+15 pp DM control" },
+      { study: "IMPACT-Diabetes (ASHA-led)", effect: "21.8% vs 10.3% achieving control" },
+      { study: "Anjali 2023 (single-site)", effect: "HbA1c −1.3% (n=106)" },
+    ],
+    protocolEffect: "8.4 pp absolute",
+    plausibleRangePP: { low: 4, mid: 8.4, high: 15 },
+    note: "K-DPP (Kerala, n=1,007): primary non-significant (12% RRR, p=0.17). Publication bias: 20-40% downward adjustment recommended.",
+  },
 };
 
 // ─── Utility functions ───────────────────────────────────────────────────────
@@ -143,6 +177,7 @@ const styles = {
   badge: { display: "inline-block", padding: "2px 8px", borderRadius: "10px", fontSize: "10.5px", fontWeight: "700", marginLeft: "8px" },
   badgePooled: { display: "inline-block", padding: "1px 6px", borderRadius: "8px", fontSize: "9.5px", fontWeight: "700", background: "#FFF3CD", color: "#856404", marginLeft: "4px" },
   badgeInsuff: { display: "inline-block", padding: "1px 6px", borderRadius: "8px", fontSize: "9.5px", fontWeight: "700", background: "#F8D7DA", color: "#721C24", marginLeft: "4px" },
+  badgeLowHba1c: { display: "inline-block", padding: "1px 6px", borderRadius: "8px", fontSize: "9.5px", fontWeight: "700", background: "#FFE0B2", color: "#E65100", marginLeft: "4px" },
   badgeSurvey: { display: "inline-block", padding: "1px 6px", borderRadius: "8px", fontSize: "9.5px", fontWeight: "700", background: "#D4EDDA", color: "#155724", marginLeft: "4px" },
   note: { fontSize: "11px", color: "#666", marginTop: "8px", lineHeight: "1.5", padding: "8px 10px", background: "#FFF8E7", borderLeft: `3px solid ${ORANGE}`, borderRadius: "0 4px 4px 0" },
   toggleBtn: { padding: "6px 14px", borderRadius: "4px", border: "1px solid #CCC", cursor: "pointer", fontSize: "12px", fontWeight: "500" },
@@ -337,7 +372,7 @@ function generateExportHTML(params) {
 </table>
 
 <div class="footer">
-  STEPS-INDIA CRCT Sample Size Calculator v2.0 | ICMR-NHRP Funded<br>
+  STEPS-INDIA CRCT Sample Size Calculator v2.1 | ICMR-NHRP Funded<br>
   Formulas: Donner & Klar (1981); Hayes & Bennett (1999); Eldridge et al. (2006); Rutterford, Copas & Eldridge (2015)<br>
   ICCs from baseline survey using GEE with exchangeable correlation (Zou & Donner 2004)
 </div>
@@ -370,8 +405,8 @@ function App() {
   const [htn_effect, setHtnEffect] = useState(0.105);
   const [htn_clusterSize, setHtnClusterSize] = useState(25);
 
-  // Trial parameters — DM (survey: 32.0%)
-  const [dm_p_control, setDmPControl] = useState(0.32);
+  // Trial parameters — DM (survey: 35.5% among those with verified HbA1c)
+  const [dm_p_control, setDmPControl] = useState(0.355);
   const [dm_effect, setDmEffect] = useState(0.084);
   const [dm_clusterSize, setDmClusterSize] = useState(15);
 
@@ -508,7 +543,7 @@ function App() {
             <h1 style={styles.headerTitle}>STEPS-INDIA CRCT Sample Size Calculator</h1>
             <p style={styles.headerSub}>
               Interactive tool for finalizing cluster count and sample size using baseline survey ICCs
-              &nbsp;|&nbsp; Co-primary outcomes (BP &amp; Glycemic Control) &nbsp;|&nbsp; v2.0
+              &nbsp;|&nbsp; Co-primary outcomes (BP &amp; Glycemic Control) &nbsp;|&nbsp; v2.1
             </p>
           </div>
           <button style={styles.exportBtn} onClick={handleExport}>
@@ -529,6 +564,7 @@ function App() {
               {SURVEY_DATA.totalN.toLocaleString()} participants | {SURVEY_DATA.totalClusters} clusters | 6 sites |
               ICCs via GEE (exchangeable correlation) |
               Sites with ICC=0 or insufficient data use pooled overall estimate
+              <br /><span style={{ color: ORANGE }}>Note: HbA1c verified for 543/729 DM patients (74.5%) — glycemic ICCs at some sites may be unreliable</span>
             </div>
           </div>
           <div style={{ textAlign: "right", fontSize: "11px", color: "#777" }}>
@@ -547,6 +583,7 @@ function App() {
                   <th style={styles.th}>Site</th>
                   <th style={{ ...styles.th, textAlign: "center" }}>N</th>
                   <th style={{ ...styles.th, textAlign: "center" }}>ICC (BP Ctrl)</th>
+                  <th style={{ ...styles.th, textAlign: "center" }}>HbA1c Valid</th>
                   <th style={{ ...styles.th, textAlign: "center" }}>ICC (Glycemic)</th>
                   <th style={{ ...styles.th, textAlign: "center" }}>Wt</th>
                 </tr>
@@ -572,12 +609,22 @@ function App() {
                           {!iccBPIsPooled[i] && <span style={styles.badgeSurvey}>survey</span>}
                         </div>
                       </td>
+                      <td style={{ ...styles.td, textAlign: "center", fontSize: "10.5px" }}>
+                        {sd.dmN > 0 ? (
+                          <span style={{ color: sd.lowHba1c ? RED : (sd.dmHba1cValid === 0 ? "#999" : "#333") }}>
+                            {sd.dmHba1cValid}/{sd.dmN}
+                            {sd.dmN > 0 && <span style={{ color: "#888" }}> ({(sd.dmHba1cValid / sd.dmN * 100).toFixed(0)}%)</span>}
+                            {sd.lowHba1c && <span style={styles.badgeLowHba1c}>gaps</span>}
+                          </span>
+                        ) : "—"}
+                      </td>
                       <td style={{ ...styles.td, textAlign: "center" }}>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "2px" }}>
-                          <input style={{ ...styles.input, background: iccGlycIsPooled[i] ? "#FFF8E7" : "white" }} type="number" step="0.001" min="0" max="1"
+                          <input style={{ ...styles.input, background: sd.lowHba1c ? "#FFE0B2" : (iccGlycIsPooled[i] ? "#FFF8E7" : "white") }} type="number" step="0.001" min="0" max="1"
                             value={iccDM[i]} onChange={e => updateICC(iccDM, setIccDM, i, e.target.value)} />
                           {iccGlycIsPooled[i] && <span style={styles.badgePooled}>pooled</span>}
-                          {!iccGlycIsPooled[i] && <span style={styles.badgeSurvey}>survey</span>}
+                          {!iccGlycIsPooled[i] && !sd.lowHba1c && <span style={styles.badgeSurvey}>survey</span>}
+                          {sd.lowHba1c && <span style={styles.badgeLowHba1c}>unreliable</span>}
                         </div>
                       </td>
                       <td style={{ ...styles.td, textAlign: "center" }}>
@@ -590,6 +637,7 @@ function App() {
                 <tr style={{ background: "#E8EDF3", fontWeight: "700" }}>
                   <td style={{ ...styles.td, fontWeight: "700" }} colSpan={2}>Weighted Pooled</td>
                   <td style={{ ...styles.td, textAlign: "center", color: ACCENT, fontWeight: "700" }}>{pooledHTN !== null ? pooledHTN.toFixed(4) : "—"}</td>
+                  <td style={{ ...styles.td, textAlign: "center", fontSize: "10.5px", color: "#666" }}>543/729 (74.5%)</td>
                   <td style={{ ...styles.td, textAlign: "center", color: GREEN, fontWeight: "700" }}>{pooledDM_calc !== null ? pooledDM_calc.toFixed(4) : "—"}</td>
                   <td style={styles.td}></td>
                 </tr>
@@ -598,8 +646,14 @@ function App() {
             <div style={styles.note}>
               <strong>Legend:</strong> <span style={styles.badgeSurvey}>survey</span> = site-specific GEE estimate |
               <span style={styles.badgePooled}>pooled</span> = overall pooled ICC (site had ICC=0 or insufficient data) |
-              <span style={styles.badgeInsuff}>low N</span> = &lt;200 participants, unreliable estimate.
+              <span style={styles.badgeInsuff}>low N</span> = &lt;200 participants |
+              <span style={styles.badgeLowHba1c}>gaps</span> / <span style={styles.badgeLowHba1c}>unreliable</span> = incomplete HbA1c verification.
               <br />Weights default to cluster count; editable. Per Giraudeau (2006), ICCs from pre-randomization data.
+            </div>
+            <div style={{ ...styles.note, background: "#FFF0F0", borderLeftColor: RED, marginTop: "8px" }}>
+              <strong style={{ color: RED }}>HbA1c Data Quality Warning:</strong> {SURVEY_DATA.hba1cNote}
+              <br />Glycemic ICCs at sites with &lt;80% HbA1c availability may be inflated due to sparse within-cluster data.
+              Sites with complete data (Jammu 100%, Madurai 100%) show much lower glycemic ICCs (0.02, 0.00).
             </div>
           </Card>
 
@@ -647,7 +701,8 @@ function App() {
             <div style={{ ...styles.note, marginTop: "12px" }}>
               <strong>Key findings from survey:</strong><br />
               BP ICC (0.039) is ~60% lower than V3 assumption (0.10) — fewer clusters needed<br />
-              Glycemic ICC (0.063) is ~26% higher than V3 (0.05) — may need more clusters<br />
+              Glycemic ICC (0.063) is ~26% higher than V3 (0.05) — but <strong style={{ color: ORANGE }}>caveat:</strong> only 74.5% of DM patients have verified HbA1c.
+              Sites with poorest HbA1c coverage (KIMS 17%, Bhopal 62%) show highest glycemic ICCs (0.25, 0.15) — likely inflated.<br />
               <em>AIIMS Delhi uses pooled values (survey ongoing, N=123 of planned 1200)</em>
             </div>
 
@@ -709,6 +764,15 @@ function App() {
                 </span>
               </div>
             </div>
+            <div style={{ fontSize: "10.5px", color: "#777", display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+              <span>CLD range:</span>
+              {[CLD_EVIDENCE.htn.plausibleRangePP.low, CLD_EVIDENCE.htn.plausibleRangePP.mid, CLD_EVIDENCE.htn.plausibleRangePP.high].map(v => (
+                <button key={v} onClick={() => setHtnEffect(v / 100)}
+                  style={{ ...styles.toggleBtn, padding: "2px 8px", fontSize: "10px", background: Math.abs(htn_effect * 100 - v) < 0.1 ? ACCENT : "white", color: Math.abs(htn_effect * 100 - v) < 0.1 ? "white" : ACCENT, border: `1px solid ${ACCENT}` }}>
+                  {v}pp
+                </button>
+              ))}
+            </div>
           </Card>
 
           <Card title="Diabetes (Glycemic Control)" accent={GREEN}>
@@ -726,8 +790,59 @@ function App() {
                 </span>
               </div>
             </div>
+            <div style={{ fontSize: "10.5px", color: "#777", display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+              <span>CLD range:</span>
+              {[CLD_EVIDENCE.dm.plausibleRangePP.low, CLD_EVIDENCE.dm.plausibleRangePP.mid, CLD_EVIDENCE.dm.plausibleRangePP.high].map(v => (
+                <button key={v} onClick={() => setDmEffect(v / 100)}
+                  style={{ ...styles.toggleBtn, padding: "2px 8px", fontSize: "10px", background: Math.abs(dm_effect * 100 - v) < 0.1 ? GREEN : "white", color: Math.abs(dm_effect * 100 - v) < 0.1 ? "white" : GREEN, border: `1px solid ${GREEN}` }}>
+                  {v}pp
+                </button>
+              ))}
+            </div>
           </Card>
         </div>
+
+        <Card title="eCES Causal Loop Diagram: Plausible Effect Size Ranges" accent="#7B2D8E">
+          <div style={{ fontSize: "12px", color: "#555", lineHeight: "1.7" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "12px" }}>
+              <div style={{ padding: "10px 14px", background: "#EBF0F9", borderRadius: "6px", border: `1px solid ${ACCENT}30` }}>
+                <div style={{ fontWeight: "700", color: ACCENT, marginBottom: "6px" }}>BP Control (Hypertension)</div>
+                <div style={{ fontSize: "11.5px" }}>
+                  <strong>Primary:</strong> {CLD_EVIDENCE.htn.primaryEstimate} ({CLD_EVIDENCE.htn.primarySource})<br />
+                  <strong>Range:</strong> {CLD_EVIDENCE.htn.rangeMMHG}<br />
+                  <strong>Plausible range (absolute pp):</strong>{" "}
+                  <span style={{ fontWeight: "700" }}>{CLD_EVIDENCE.htn.plausibleRangePP.low}–{CLD_EVIDENCE.htn.plausibleRangePP.high} pp</span>
+                  <span style={{ color: "#999" }}> (Protocol V3: {CLD_EVIDENCE.htn.protocolEffect})</span><br />
+                  <div style={{ marginTop: "4px", fontSize: "10.5px", color: "#777" }}>
+                    <strong>India:</strong> {CLD_EVIDENCE.htn.indiaEvidence.map((e, i) => (
+                      <span key={i}>{e.study}: {e.effect}{i < CLD_EVIDENCE.htn.indiaEvidence.length - 1 ? " | " : ""}</span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div style={{ padding: "10px 14px", background: "#E8F5E9", borderRadius: "6px", border: `1px solid ${GREEN}30` }}>
+                <div style={{ fontWeight: "700", color: GREEN, marginBottom: "6px" }}>Glycemic Control (Diabetes)</div>
+                <div style={{ fontSize: "11.5px" }}>
+                  <strong>Primary:</strong> {CLD_EVIDENCE.dm.primaryEstimate} ({CLD_EVIDENCE.dm.primarySource})<br />
+                  <strong>Range:</strong> {CLD_EVIDENCE.dm.rangeHbA1c}<br />
+                  <strong>Plausible range (absolute pp):</strong>{" "}
+                  <span style={{ fontWeight: "700" }}>{CLD_EVIDENCE.dm.plausibleRangePP.low}–{CLD_EVIDENCE.dm.plausibleRangePP.high} pp</span>
+                  <span style={{ color: "#999" }}> (Protocol V3: {CLD_EVIDENCE.dm.protocolEffect})</span><br />
+                  <div style={{ marginTop: "4px", fontSize: "10.5px", color: "#777" }}>
+                    <strong>India:</strong> {CLD_EVIDENCE.dm.indiaEvidence.map((e, i) => (
+                      <span key={i}>{e.study}: {e.effect}{i < CLD_EVIDENCE.dm.indiaEvidence.length - 1 ? " | " : ""}</span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div style={{ ...styles.note, background: "#F3E8F9", borderLeftColor: PURPLE }}>
+              <strong>Source:</strong> eCES Causal Loop Diagram Module 2 (Evidence Base) &amp; Module 3 (Loop Analysis).
+              Effect sizes account for peer-support specific evidence, India context, and 20% publication bias adjustment.
+              <br /><strong>Note:</strong> {CLD_EVIDENCE.htn.note} {CLD_EVIDENCE.dm.note}
+            </div>
+          </div>
+        </Card>
 
         <Card title="Shared Design Parameters">
           <div style={styles.paramRow}>
@@ -923,7 +1038,7 @@ function App() {
         </Card>
 
         <div style={{ textAlign: "center", padding: "20px 0", fontSize: "11px", color: "#999" }}>
-          STEPS-INDIA CRCT Sample Size Calculator v2.0 &nbsp;|&nbsp; Baseline survey data: {SURVEY_DATA.date}
+          STEPS-INDIA CRCT Sample Size Calculator v2.1 &nbsp;|&nbsp; Baseline survey data: {SURVEY_DATA.date}
           &nbsp;|&nbsp; Investigators' Meeting, Jammu, April 2026 &nbsp;|&nbsp; ICMR-NHRP Funded
         </div>
       </div>
