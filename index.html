@@ -73,7 +73,7 @@ const SURVEY_DATA = {
     { name: "AIIMS New Delhi & HRIDAY", n: 123,  clusters: 7,  htnN: 47,  bpCtrl: 8.5,  dmN: 14,  dmHba1cValid: 0,   dmClustersValid: 0,  dmClustersTotal: 5,  glycCtrl: null, iccBP: null,   iccGlyc: null,  insufficient: true },
     { name: "KIMS Odisha & INCLEN",     n: 868,  clusters: 45, htnN: 411, bpCtrl: 15.1, dmN: 138, dmHba1cValid: 23,  dmClustersValid: 6,  dmClustersTotal: 38, glycCtrl: 30.4, iccBP: 0.0478, iccGlyc: 0.2503, lowHba1c: true },
   ],
-  overall: { bpCtrl: 19.8, glycCtrl: 35.5, iccBP_anova: 0.0508, iccGlyc_anova: 0.0842, iccBP_gee: 0.0386, iccGlyc_gee: 0.0632 },
+  overall: { bpCtrl: 19.8, glycCtrl: 35.5, iccBP_anova: 0.0508, iccGlyc_anova: 0.0331, iccBP_gee: 0.0386, iccGlyc_gee: 0.0126 },
   hba1cNote: "543 of 729 DM patients (74.5%) have verified HbA1c. KIMS Odisha: 23/138 (16.7%), AIIMS Bhopal: 91/146 (62.3%). Glycemic ICCs at these sites are unreliable.",
 };
 
@@ -387,7 +387,10 @@ function generateExportHTML(params) {
 function App() {
   // Initialize ICCs from survey data, substituting pooled where ICC=0 or insufficient
   const pooledBP = SURVEY_DATA.overall.iccBP_gee;
-  const pooledGlyc = SURVEY_DATA.overall.iccGlyc_gee;
+  // Use ANOVA estimator for pooled glycemic ICC: GEE exchangeable underestimates
+  // ICC with sparse binary clusters (3-7 DM cases/cluster here). ANOVA moment
+  // estimator (Fleiss-Cuzick) is more reliable in this regime.
+  const pooledGlyc = SURVEY_DATA.overall.iccGlyc_anova;
 
   const initialICCHTN = SURVEY_DATA.sites.map(s =>
     s.insufficient ? pooledBP : (s.iccBP === 0.0 ? pooledBP : s.iccBP)
@@ -751,8 +754,9 @@ function App() {
             <div style={{ ...styles.note, marginTop: "12px" }}>
               <strong>Key findings from survey:</strong><br />
               BP ICC (0.039) is ~60% lower than V3 assumption (0.10) — fewer clusters needed<br />
-              Glycemic ICC (0.063) is ~26% higher than V3 (0.05) — but <strong style={{ color: ORANGE }}>caveat:</strong> only 74.5% of DM patients have verified HbA1c.
-              Sites with poorest HbA1c coverage (KIMS 17%, Bhopal 62%) show highest glycemic ICCs (0.25, 0.15) — likely inflated.<br />
+              Glycemic ICC (0.033, ANOVA; excl. low-HbA1c sites) is ~34% lower than V3 (0.05) — fewer clusters needed.
+              <strong style={{ color: ORANGE }}>Note:</strong> GEE exchangeable gives 0.013 but underestimates with sparse binary clusters (3-7 DM cases/cluster);
+              ANOVA moment estimator used as conservative recommended value.<br />
               <em>AIIMS Delhi uses pooled values (survey ongoing, N=123 of planned 1200)</em>
             </div>
 
