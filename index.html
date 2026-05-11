@@ -62,19 +62,19 @@ const PROTOCOL_V3 = {
 // Source: 01_ICC_Primary_Outcomes.qmd — GEE with exchangeable correlation
 // HbA1c availability: verified from raw data (sentinel value -999999999 = pending verification)
 const SURVEY_DATA = {
-  date: "April 13, 2026",
-  totalN: 4695,
-  totalClusters: 237,
+  date: "May 11, 2026",
+  totalN: 6637,
+  totalClusters: 327,
   sites: [
-    { name: "MGIMS Sevagram",           n: 1202, clusters: 60, htnN: 420, bpCtrl: 28.8, dmN: 89,  dmHba1cValid: 87,  dmClustersValid: 45, dmClustersTotal: 45, glycCtrl: 43.7, iccBP: 0.0000, iccGlyc: 0.0000 },
-    { name: "AIIMS Bhopal",             n: 846,  clusters: 41, htnN: 352, bpCtrl: 23.0, dmN: 146, dmHba1cValid: 91,  dmClustersValid: 25, dmClustersTotal: 36, glycCtrl: 51.6, iccBP: 0.0360, iccGlyc: 0.1540, lowHba1c: true },
-    { name: "AIIMS Madurai",            n: 840,  clusters: 42, htnN: 393, bpCtrl: 21.1, dmN: 205, dmHba1cValid: 205, dmClustersValid: 40, dmClustersTotal: 40, glycCtrl: 30.2, iccBP: 0.0127, iccGlyc: 0.0000 },
-    { name: "AIIMS Jammu",              n: 816,  clusters: 42, htnN: 426, bpCtrl: 12.7, dmN: 137, dmHba1cValid: 137, dmClustersValid: 41, dmClustersTotal: 41, glycCtrl: 28.5, iccBP: 0.0258, iccGlyc: 0.0222 },
-    { name: "AIIMS New Delhi & HRIDAY", n: 123,  clusters: 7,  htnN: 47,  bpCtrl: 8.5,  dmN: 14,  dmHba1cValid: 0,   dmClustersValid: 0,  dmClustersTotal: 5,  glycCtrl: null, iccBP: null,   iccGlyc: null,  insufficient: true },
-    { name: "KIMS Odisha & INCLEN",     n: 868,  clusters: 45, htnN: 411, bpCtrl: 15.1, dmN: 138, dmHba1cValid: 23,  dmClustersValid: 6,  dmClustersTotal: 38, glycCtrl: 30.4, iccBP: 0.0478, iccGlyc: 0.2503, lowHba1c: true },
+    { name: "MGIMS Sevagram",           n: 1202, clusters: 60, htnN: 419, bpCtrl: 28.9, dmN: 187, dmHba1cValid: 187, dmClustersValid: 56, dmClustersTotal: 56, glycCtrl: 43.3, iccBP: 0.0000, iccGlyc: 0.0000 },
+    { name: "AIIMS Bhopal",             n: 1263, clusters: 60, htnN: 516, bpCtrl: 21.5, dmN: 393, dmHba1cValid: 393, dmClustersValid: 59, dmClustersTotal: 59, glycCtrl: 39.7, iccBP: 0.0284, iccGlyc: 0.1298 },
+    { name: "AIIMS Madurai",            n: 1200, clusters: 60, htnN: 580, bpCtrl: 24.8, dmN: 492, dmHba1cValid: 492, dmClustersValid: 60, dmClustersTotal: 60, glycCtrl: 36.2, iccBP: 0.0901, iccGlyc: 0.0000 },
+    { name: "AIIMS Jammu",              n: 1206, clusters: 60, htnN: 609, bpCtrl: 14.0, dmN: 281, dmHba1cValid: 281, dmClustersValid: 58, dmClustersTotal: 58, glycCtrl: 26.0, iccBP: 0.0339, iccGlyc: 0.0404 },
+    { name: "AIIMS New Delhi & HRIDAY", n: 559,  clusters: 27, htnN: 224, bpCtrl: 10.3, dmN: 47,  dmHba1cValid: 0,   dmClustersValid: 0,  dmClustersTotal: 0,  glycCtrl: null, iccBP: 0.0299, iccGlyc: null, lowHba1c: true },
+    { name: "KIMS Odisha & INCLEN",     n: 1207, clusters: 60, htnN: 518, bpCtrl: 14.5, dmN: 334, dmHba1cValid: 334, dmClustersValid: 60, dmClustersTotal: 60, glycCtrl: 34.4, iccBP: 0.0182, iccGlyc: 0.0027 },
   ],
-  overall: { bpCtrl: 19.8, glycCtrl: 35.5, iccBP_anova: 0.0508, iccGlyc_anova: 0.0331, iccBP_gee: 0.0386, iccGlyc_gee: 0.0126 },
-  hba1cNote: "543 of 729 DM patients (74.5%) have verified HbA1c. KIMS Odisha: 23/138 (16.7%), AIIMS Bhopal: 91/146 (62.3%). Glycemic ICCs at these sites are unreliable.",
+  overall: { bpCtrl: 19.5, glycCtrl: 35.7, iccBP_anova: 0.0656, iccGlyc_anova: 0.0539, iccBP_gee: 0.0611, iccGlyc_gee: 0.0413 },
+  hba1cNote: "1687 of 1734 DM patients (97.3%) have verified HbA1c. AIIMS New Delhi & HRIDAY: 0/47 (0.0%, survey ongoing) — flagged lowHba1c. All other sites are at 100% HbA1c verification. Glycemic ICCs and baseline rate computed on verified-HbA1c-only denominator.",
 };
 
 // ─── CLD Evidence: Plausible effect size ranges (from eCES Causal Loop Diagrams) ─
@@ -410,13 +410,13 @@ function App() {
   // Trial parameters — HTN (updated from survey: baseline 19.8%)
   // htn_effect is now RELATIVE (fraction of baseline). 0.53 = 53% relative improvement.
   // Protocol V3 anchor: 10.5pp absolute / 19.8% baseline ≈ 0.53 relative
-  const [htn_p_control, setHtnPControl] = useState(0.198);
+  const [htn_p_control, setHtnPControl] = useState(0.195);
   const [htn_effect, setHtnEffect] = useState(0.53);
   const [htn_clusterSize, setHtnClusterSize] = useState(25);
 
   // Trial parameters — DM (survey: 35.5% among those with verified HbA1c)
   // dm_effect relative. Protocol V3: 8.4pp / 35.5% ≈ 0.24 relative
-  const [dm_p_control, setDmPControl] = useState(0.355);
+  const [dm_p_control, setDmPControl] = useState(0.357);
   const [dm_effect, setDmEffect] = useState(0.24);
   const [dm_clusterSize, setDmClusterSize] = useState(15);
 
