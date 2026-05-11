@@ -336,7 +336,7 @@ function generateExportHTML(params) {
   <tr><td>Intervention rate (expected)</td><td>${(htn_p_int * 100).toFixed(1)}%</td><td>${(dm_p_int * 100).toFixed(1)}%</td></tr>
   <tr><td>Cluster size (m)</td><td>${htn_clusterSize}</td><td>${dm_clusterSize}</td></tr>
   <tr><td>ICC used</td><td>${effectiveICCHTN.toFixed(4)} <span class="v3">(V3: 0.10)</span></td><td>${effectiveICCDM.toFixed(4)} <span class="v3">(V3: 0.05)</span></td></tr>
-  <tr><td>Alpha (two-sided)</td><td colspan="2">${alpha} (Bonferroni for co-primary outcomes)</td></tr>
+  <tr><td>Alpha (two-sided)</td><td colspan="2">${alpha} — Two independent primary outcomes (disjoint cohorts, no Bonferroni)</td></tr>
   <tr><td>Power (1-beta)</td><td colspan="2">${(power * 100).toFixed(0)}%</td></tr>
   <tr><td>Attrition</td><td colspan="2">${(attrition * 100).toFixed(0)}%</td></tr>
   <tr><td>CV of cluster size</td><td colspan="2">${cv.toFixed(2)} ${cv > 0 ? "(Eldridge adjustment applied)" : ""}</td></tr>
@@ -376,7 +376,7 @@ function generateExportHTML(params) {
 </table>
 
 <div class="footer">
-  STEPS-INDIA CRCT Sample Size Calculator v2.2 | ICMR-NHRP Funded<br>
+  STEPS-INDIA CRCT Sample Size Calculator v2.3 | ICMR-NHRP Funded<br>
   Formulas: Donner & Klar (1981); Hayes & Bennett (1999); Eldridge et al. (2006); Rutterford, Copas & Eldridge (2015)<br>
   ICCs from baseline survey using GEE with exchangeable correlation (Zou & Donner 2004)
 </div>
@@ -408,17 +408,17 @@ function App() {
   const [siteWeights, setSiteWeights] = useState(SURVEY_DATA.sites.map(s => s.clusters));
 
   // Trial parameters — HTN (updated from survey: baseline 19.8%)
-  // htn_effect is now RELATIVE (fraction of baseline). 0.53 = 53% relative improvement.
+  // htn_effect is now RELATIVE (fraction of baseline). 0.35 = 35% relative improvement.
   // Protocol V3 anchor: 10.5pp absolute / 19.8% baseline ≈ 0.53 relative
   const [htn_p_control, setHtnPControl] = useState(0.195);
-  const [htn_effect, setHtnEffect] = useState(0.53);
-  const [htn_clusterSize, setHtnClusterSize] = useState(25);
+  const [htn_effect, setHtnEffect] = useState(0.35);
+  const [htn_clusterSize, setHtnClusterSize] = useState(50);
 
   // Trial parameters — DM (survey: 35.5% among those with verified HbA1c)
-  // dm_effect relative. Protocol V3: 8.4pp / 35.5% ≈ 0.24 relative
+  // dm_effect relative. Protocol V3: 8.4pp / 35.5% ≈ 0.25 relative
   const [dm_p_control, setDmPControl] = useState(0.357);
-  const [dm_effect, setDmEffect] = useState(0.24);
-  const [dm_clusterSize, setDmClusterSize] = useState(15);
+  const [dm_effect, setDmEffect] = useState(0.25);
+  const [dm_clusterSize, setDmClusterSize] = useState(40);
 
   // Helper: convert relative effect to absolute p_intervention, clamped to <1
   const pInt = (p, rel) => Math.min(0.999, p * (1 + rel));
@@ -596,7 +596,7 @@ function App() {
             <h1 style={styles.headerTitle}>STEPS-INDIA CRCT Sample Size Calculator</h1>
             <p style={styles.headerSub}>
               Interactive tool for finalizing cluster count and sample size using baseline survey ICCs
-              &nbsp;|&nbsp; Co-primary outcomes (BP &amp; Glycemic Control) &nbsp;|&nbsp; v2.2
+              &nbsp;|&nbsp; Co-primary outcomes (BP &amp; Glycemic Control) &nbsp;|&nbsp; v2.3
             </p>
           </div>
           <button style={styles.exportBtn} onClick={handleExport}>
@@ -909,7 +909,7 @@ function App() {
         <Card title="Shared Design Parameters">
           <div style={styles.paramRow}>
             <ParamInput label="Alpha (two-sided)" value={alpha} onChange={setAlpha}
-              options={[{ value: 0.05, label: "0.05" }, { value: 0.025, label: "0.025 (co-primary)" }, { value: 0.01, label: "0.01" }, { value: 0.005, label: "0.005" }]} />
+              options={[{ value: 0.05, label: "0.05" }, { value: 0.025, label: "0.025 (two independent primaries, α=0.05 each)" }, { value: 0.01, label: "0.01" }, { value: 0.005, label: "0.005" }]} />
             <ParamInput label="Power (1-beta)" value={power} onChange={setPower}
               options={[{ value: 0.80, label: "80%" }, { value: 0.85, label: "85%" }, { value: 0.90, label: "90%" }, { value: 0.95, label: "95%" }]} />
             <ParamInput label="Attrition rate" value={attrition} onChange={setAttrition} step="0.05" min={0} max={0.50} suffix={`(${(attrition * 100).toFixed(0)}%)`} />
@@ -945,7 +945,7 @@ function App() {
                 <strong>Study-level powering:</strong> Sample size computed for the entire trial across {NUM_SITES} sites.
                 Total clusters are distributed across sites. The study is powered to detect the overall treatment effect,
                 but individual sites may lack power for site-specific subgroup analyses.
-                <br />Co-primary outcomes use alpha=0.025 each (Bonferroni). CV &gt; 0.23 triggers Eldridge adjustment.
+                <br />Two independent primary outcomes on disjoint cohorts (HTN, DM), each tested at α=0.05 two-sided — no Bonferroni correction. CV &gt; 0.23 triggers Eldridge adjustment.
               </>
             ) : (
               <>
@@ -1161,13 +1161,13 @@ function App() {
             <p style={{ fontSize: "11px", color: "#777", marginTop: "12px" }}>
               <strong>References:</strong> Donner &amp; Klar (1981); Hayes &amp; Bennett (1999); Eldridge, Ashby &amp; Kerry (2006);
               Rutterford, Copas &amp; Eldridge (2015); van Breukelen &amp; Candel (2012); Zou &amp; Donner (2004).
-              <br />Co-primary outcome alpha-adjustment per Bonferroni; CONSORT-CRT extension (Campbell et al. 2012).
+              <br />Two independent primary outcomes on disjoint patient cohorts (HTN, DM) — each at α=0.05 two-sided, no family-wise correction. CONSORT-CRT extension (Campbell et al. 2012); FDA Multiple Endpoints Guidance (2022); EMA Multiplicity PtC (2017).
             </p>
           </div>
         </Card>
 
         <div style={{ textAlign: "center", padding: "20px 0", fontSize: "11px", color: "#999" }}>
-          STEPS-INDIA CRCT Sample Size Calculator v2.2 &nbsp;|&nbsp; Baseline survey data: {SURVEY_DATA.date}
+          STEPS-INDIA CRCT Sample Size Calculator v2.3 &nbsp;|&nbsp; Baseline survey data: {SURVEY_DATA.date}
           &nbsp;|&nbsp; Investigators' Meeting, Jammu, April 2026 &nbsp;|&nbsp; ICMR-NHRP Funded
         </div>
       </div>
